@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rakuraku-einou-pwa-v4';
+const CACHE_NAME = 'rakuraku-einou-pwa-v5';
 // 同一オリジンの必須ファイル（1つでも失敗したらインストール失敗にする）
 const LOCAL_ASSETS = [
   './',
@@ -10,7 +10,9 @@ const LOCAL_ASSETS = [
 ];
 // 外部CDN（取得失敗してもインストール自体は継続する）
 const CDN_ASSETS = [
-  'https://cdn.tailwindcss.com'
+  'https://cdn.tailwindcss.com',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
 ];
 
 self.addEventListener('install', (event) => {

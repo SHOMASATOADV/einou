@@ -15,11 +15,13 @@ function refreshAllViews() {
   renderSelectOptions();
   renderInputFieldGrid();
   recalculatePreview();
+  renderDiaryTimeline();
   renderGisHeatmap();
   inspectField(currentInspectedFieldId);
   renderResourcesTab();
   renderReportsTab();
   updateSyncBadge();
+  refreshInteractiveMaps_();
 }
 
 function setTodayWorkDate() {
@@ -58,6 +60,7 @@ function initApp() {
   renderInputFieldGrid();
   selectWorkCat('施肥');
   recalculatePreview();
+  renderDiaryTimeline();
   renderGisHeatmap();
   inspectField('F01');
   renderResourcesTab();
@@ -231,15 +234,268 @@ function renderInputFieldGrid() {
     const alertBadge = alertCnt > 0 ? `<span class="text-xs text-amber-600 font-bold ml-1" title="見回りアラート ${alertCnt}件">⚠️${alertCnt}</span>` : '';
     const distBadge = f._distM !== undefined ? `<span class="text-xs text-sky-600 font-semibold ml-1">(${f._distM}m)</span>` : '';
     return `
-      <button onclick="toggleFieldSelection('${escapeHtml(f.id)}')" class="p-2.5 rounded-xl text-left transition ${activeCls}">
-        <div class="flex items-center justify-between">
+      <div onclick="toggleFieldSelection('${escapeHtml(f.id)}')" role="button" tabindex="0" class="cursor-pointer p-2.5 rounded-xl text-left transition ${activeCls}">
+        <div class="flex items-center justify-between gap-1">
           <span class="text-xs font-bold text-[var(--foreground)] truncate">${checkIcon} ${escapeHtml(f.name)}${alertBadge}</span>
           <span class="text-xs font-bold text-emerald-600 shrink-0">${escapeHtml(f.area)}a</span>
         </div>
-        <div class="text-xs text-[var(--muted-foreground)] mt-0.5 truncate">${escapeHtml(f.lot)} ${distBadge}</div>
-      </button>
+        <div class="flex items-center justify-between gap-1 mt-1">
+          <span class="text-xs text-[var(--muted-foreground)] truncate">${escapeHtml(f.lot)} ${distBadge}</span>
+          <button type="button" onclick="event.stopPropagation(); openFieldInGoogleMaps('${escapeHtml(f.id)}')" class="px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-600 hover:bg-sky-500/25 text-[10px] font-bold shrink-0" title="Googleマップでこの圃場を開く">📍Map</button>
+        </div>
+      </div>
     `;
   }).join('');
+  refreshInteractiveMaps_();
+}
+
+// =========================================================================
+// Googleマップ連携 ＆ 航空写真インタラクティブマップ（圃場選択・GISカルテ・位置取得）
+// =========================================================================
+const _leafletMaps = { input: null, gis: null, picker: null };
+const _leafletLayers = { input: null, gis: null, picker: null };
+let currentGisMapMode = 'svg';
+
+function openFieldInGoogleMaps(fieldId) {
+  const f = fieldsData.find(item => item.id === fieldId) || fieldsData[0];
+  if (!f) return;
+  const lat = Number(f.lat) || 37.9161;
+  const lng = Number(f.lng) || 139.0364;
+  const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  window.open(url, '_blank', 'noopener');
+}
+
+function openSelectedFieldsInGoogleMaps() {
+  const sel = fieldsData.filter(f => selectedFieldIds.includes(f.id));
+  if (sel.length === 0) return;
+  if (sel.length === 1) {
+    openFieldInGoogleMaps(sel[0].id);
+    return;
+  }
+  const coordsPath = sel.map(f => `${Number(f.lat) || 37.9161},${Number(f.lng) || 139.0364}`).join('/');
+  const url = `https://www.google.com/maps/dir/${coordsPath}`;
+  window.open(url, '_blank', 'noopener');
+}
+
+function getFieldPolygonLatLngs_(f) {
+  if (Array.isArray(f.polygonCoords) && f.polygonCoords.length >= 3) {
+    return f.polygonCoords.map(pt => [Number(pt[1]), Number(pt[0])]);
+  }
+  const lat = Number(f.lat) || 37.9161;
+  const lng = Number(f.lng) || 139.0364;
+  const sideM = Math.sqrt(Math.max(5, Number(f.area) || 20) * 100);
+  const dLat = (sideM / 2) / 111320;
+  const dLng = (sideM / 2) / (111320 * Math.cos((lat * Math.PI) / 180));
+  return [
+    [lat - dLat * 0.85, lng - dLng * 1.15],
+    [lat - dLat * 0.85, lng + dLng * 1.15],
+    [lat + dLat * 0.85, lng + dLng * 1.15],
+    [lat + dLat * 0.85, lng - dLng * 1.15]
+  ];
+}
+
+function renderLeafletFieldMap_(target) {
+  const canvasId = target === 'input'
+    ? 'inputGoogleMapCanvas'
+    : (target === 'gis' ? 'gisGoogleMapCanvas' : 'newFieldMapPickerCanvas');
+  const container = document.getElementById(canvasId);
+  if (!container) return;
+
+  // オフラインまたはLeaflet未読込時のフォールバックUI
+  if (typeof L === 'undefined') {
+    container.innerHTML = `
+      <div class="w-full h-full flex flex-col items-center justify-center p-4 text-center text-white text-xs space-y-2">
+        <div class="font-bold text-amber-300">📡 現在オフラインのためGoogle航空写真タイルを読み込めません</div>
+        <div class="text-stone-300">下のボタンから各圃場を直接選択するか、オンライン復帰後に航空写真を表示できます。</div>
+        <div class="flex flex-wrap justify-center gap-1.5 mt-2">
+          ${fieldsData.map(f => {
+            const active = target === 'input' ? selectedFieldIds.includes(f.id) : (f.id === currentInspectedFieldId);
+            const action = target === 'input' ? `toggleFieldSelection('${escapeHtml(f.id)}')` : `inspectField('${escapeHtml(f.id)}')`;
+            return `<button type="button" onclick="${action}" class="px-2.5 py-1 rounded-lg font-bold ${active ? 'bg-emerald-600 text-white' : 'bg-stone-700 text-stone-200'}">${escapeHtml(f.name)} (${f.area}a)</button>`;
+          }).join('')}
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (!_leafletMaps[target]) {
+    const centerLat = fieldsData[0]?.lat || 37.9161;
+    const centerLng = fieldsData[0]?.lng || 139.0364;
+    const map = L.map(container, { center: [centerLat, centerLng], zoom: 16 });
+    L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+      maxZoom: 20,
+      attribution: 'Map data &copy; Google Satellite'
+    }).addTo(map);
+    _leafletLayers[target] = L.layerGroup().addTo(map);
+    _leafletMaps[target] = map;
+
+    if (target === 'picker') {
+      map.on('click', (e) => {
+        const lat = Number(e.latlng.lat.toFixed(5));
+        const lng = Number(e.latlng.lng.toFixed(5));
+        if (document.getElementById('newFieldLat')) document.getElementById('newFieldLat').value = lat;
+        if (document.getElementById('newFieldLng')) document.getElementById('newFieldLng').value = lng;
+        renderLeafletFieldMap_('picker');
+        showToast('📍 地図上のクリック位置を取得しました', `緯度: ${lat}, 経度: ${lng}`);
+      });
+    }
+  }
+
+  const map = _leafletMaps[target];
+  const layerGroup = _leafletLayers[target];
+  layerGroup.clearLayers();
+
+  fieldsData.forEach(f => {
+    const polyPts = getFieldPolygonLatLngs_(f);
+    const lat = Number(f.lat) || 37.9161;
+    const lng = Number(f.lng) || 139.0364;
+
+    let fillColor = '#64748b';
+    let strokeColor = '#ffffff';
+    let weight = 2;
+    let fillOpacity = 0.45;
+    let statusBadge = `${f.area}a`;
+
+    if (target === 'input') {
+      const isSel = selectedFieldIds.includes(f.id);
+      fillColor = isSel ? '#10b981' : '#64748b';
+      strokeColor = isSel ? '#fde047' : '#ffffff';
+      weight = isSel ? 3 : 1.5;
+      fillOpacity = isSel ? 0.65 : 0.35;
+      statusBadge = isSel ? `☑️ 選択中 (${f.area}a)` : `未選択 (${f.area}a)`;
+    } else if (target === 'gis') {
+      const st = getFieldHeatmapStyle_(f);
+      fillColor = st.color;
+      const isCur = f.id === currentInspectedFieldId;
+      strokeColor = isCur ? '#fde047' : '#ffffff';
+      weight = isCur ? 3.5 : 2;
+      fillOpacity = isCur ? 0.7 : 0.5;
+      statusBadge = st.label;
+    }
+
+    const polygon = L.polygon(polyPts, {
+      color: strokeColor,
+      weight,
+      fillColor,
+      fillOpacity
+    }).addTo(layerGroup);
+
+    polygon.bindTooltip(
+      `<strong>${escapeHtml(f.name)}</strong><br>${escapeHtml(statusBadge)}`,
+      { permanent: true, direction: 'center', className: 'text-xs font-bold' }
+    );
+
+    polygon.on('click', () => {
+      if (target === 'input') {
+        toggleFieldSelection(f.id);
+      } else if (target === 'gis') {
+        inspectField(f.id);
+      } else if (target === 'picker') {
+        if (document.getElementById('newFieldLat')) document.getElementById('newFieldLat').value = lat;
+        if (document.getElementById('newFieldLng')) document.getElementById('newFieldLng').value = lng;
+      }
+    });
+  });
+
+  if (target === 'picker') {
+    const pLat = Number(document.getElementById('newFieldLat')?.value || 37.9212);
+    const pLng = Number(document.getElementById('newFieldLng')?.value || 139.0482);
+    L.circleMarker([pLat, pLng], {
+      radius: 9,
+      color: '#ffffff',
+      weight: 3,
+      fillColor: '#ef4444',
+      fillOpacity: 1
+    }).bindTooltip('🆕 新規登録位置', { permanent: true, direction: 'top' }).addTo(layerGroup);
+  }
+
+  setTimeout(() => { map.invalidateSize(); }, 80);
+}
+
+function refreshInteractiveMaps_() {
+  const inputWrap = document.getElementById('inputGoogleMapWrap');
+  if (inputWrap && !inputWrap.classList.contains('hidden')) {
+    renderLeafletFieldMap_('input');
+  }
+  const gisWrap = document.getElementById('gisGoogleMapWrap');
+  if (gisWrap && !gisWrap.classList.contains('hidden')) {
+    renderLeafletFieldMap_('gis');
+  }
+  const pickerWrap = document.getElementById('newFieldMapPickerWrap');
+  if (pickerWrap && !pickerWrap.classList.contains('hidden')) {
+    renderLeafletFieldMap_('picker');
+  }
+}
+
+function toggleInputGoogleMap() {
+  const wrap = document.getElementById('inputGoogleMapWrap');
+  if (!wrap) return;
+  const isHidden = wrap.classList.contains('hidden');
+  if (isHidden) {
+    wrap.classList.remove('hidden');
+    renderLeafletFieldMap_('input');
+  } else {
+    wrap.classList.add('hidden');
+  }
+}
+
+function switchGisMapMode(mode) {
+  currentGisMapMode = mode;
+  const svgWrap = document.getElementById('gisSvgMapWrap');
+  const gWrap = document.getElementById('gisGoogleMapWrap');
+  const btnSvg = document.getElementById('gisModeBtn-svg');
+  const btnG = document.getElementById('gisModeBtn-google');
+  if (!svgWrap || !gWrap) return;
+
+  if (mode === 'google') {
+    svgWrap.classList.add('hidden');
+    gWrap.classList.remove('hidden');
+    if (btnG) btnG.className = 'px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 text-white';
+    if (btnSvg) btnSvg.className = 'px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]';
+    renderLeafletFieldMap_('gis');
+  } else {
+    gWrap.classList.add('hidden');
+    svgWrap.classList.remove('hidden');
+    if (btnSvg) btnSvg.className = 'px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 text-white';
+    if (btnG) btnG.className = 'px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]';
+  }
+}
+
+function panGoogleMapToGroup(target, groupKey) {
+  const matched = fieldsData.filter(f => f.group === groupKey);
+  const list = matched.length > 0 ? matched : fieldsData;
+  if (list.length === 0) return;
+  const avgLat = list.reduce((s, f) => s + (Number(f.lat) || 37.9161), 0) / list.length;
+  const avgLng = list.reduce((s, f) => s + (Number(f.lng) || 139.0364), 0) / list.length;
+  if (target === 'gis' && currentGisMapMode !== 'google') {
+    switchGisMapMode('google');
+  }
+  const map = _leafletMaps[target];
+  if (map) {
+    map.setView([avgLat, avgLng], 16);
+  }
+}
+
+function toggleNewFieldMapPicker(forceState) {
+  const wrap = document.getElementById('newFieldMapPickerWrap');
+  if (!wrap) return;
+  const show = forceState !== undefined ? forceState : wrap.classList.contains('hidden');
+  if (show) {
+    wrap.classList.remove('hidden');
+    renderLeafletFieldMap_('picker');
+  } else {
+    wrap.classList.add('hidden');
+  }
+}
+
+function applyGoogleMapsUrlToFieldForm(val) {
+  const coords = parseGoogleMapsCoords(val);
+  if (!coords) return;
+  if (document.getElementById('newFieldLat')) document.getElementById('newFieldLat').value = coords.lat.toFixed(5);
+  if (document.getElementById('newFieldLng')) document.getElementById('newFieldLng').value = coords.lng.toFixed(5);
+  refreshInteractiveMaps_();
+  showToast('📍 Googleマップから座標を自動抽出しました', `緯度: ${coords.lat.toFixed(5)}, 経度: ${coords.lng.toFixed(5)}`);
 }
 
 function toggleFieldSelection(fieldId) {
@@ -545,8 +801,12 @@ function recalculatePreview() {
   }).join('');
 
   const workerName = document.getElementById('workerNameInput').value || '佐藤 健一';
+  const weatherVal = document.getElementById('workWeatherSelect')?.value || '☀️ 晴れ';
+  const tempVal = document.getElementById('workTempInput')?.value || '25';
+  const memoVal = (document.getElementById('workDiaryMemoInput')?.value || '').trim();
+  const memoPreview = memoVal ? ` ／ 📔メモ: ${memoVal}` : '';
   document.getElementById('previewDiarySummary').textContent =
-    `作業者: ${workerName} / 分類: ${currentWorkCat} / 合計: ${currentDuration.toFixed(1)}h (${selectedFields.length}筆へ自動按分)`;
+    `天候: ${weatherVal}(${tempVal}℃) / 作業者: ${workerName} / 分類: ${currentWorkCat} / 合計: ${currentDuration.toFixed(1)}h (${selectedFields.length}筆へ按分)${memoPreview}`;
 
   const machId = document.getElementById('machineSelect').value;
   if (machId !== 'NONE' && machines[machId]) {
@@ -638,6 +898,15 @@ function editWorkLog(logId) {
 
   document.getElementById('workDateInput').value = dateKey_(log.date).replace(/\//g, '-');
   document.getElementById('workerNameInput').value = log.worker || '';
+  if (document.getElementById('workWeatherSelect')) {
+    document.getElementById('workWeatherSelect').value = log.weather || '☀️ 晴れ';
+  }
+  if (document.getElementById('workTempInput')) {
+    document.getElementById('workTempInput').value = log.tempC !== undefined ? log.tempC : 25;
+  }
+  if (document.getElementById('workDiaryMemoInput')) {
+    document.getElementById('workDiaryMemoInput').value = log.memo || '';
+  }
   selectedFieldIds = (log.fieldIds || []).filter(id => fieldsData.some(f => f.id === id));
   if (selectedFieldIds.length === 0 && fieldsData[0]) selectedFieldIds = [fieldsData[0].id];
   currentDuration = Number(log.duration) || 0.5;
@@ -715,11 +984,18 @@ function submitUnifiedWorkLog() {
     }
   }
 
+  const weatherVal = document.getElementById('workWeatherSelect')?.value || '☀️ 晴れ';
+  const tempVal = Number(document.getElementById('workTempInput')?.value || 25);
+  const memoVal = (document.getElementById('workDiaryMemoInput')?.value || '').trim();
+
   let newLog = {
     id: 'WL-' + Date.now(),
     date: formattedDate,
     cat: currentWorkCat,
     worker: workerName,
+    weather: weatherVal,
+    tempC: tempVal,
+    memo: memoVal,
     fieldIds: selectedFields.map(f => f.id),
     totalArea: totalArea,
     duration: currentDuration,
@@ -802,15 +1078,87 @@ function submitUnifiedWorkLog() {
   recalculateFieldStats();
 
   if (isEditing) cancelEditMode(true);
+  if (document.getElementById('workDiaryMemoInput')) {
+    document.getElementById('workDiaryMemoInput').value = '';
+  }
   saveStateToStorage();
   refreshAllViews();
 
   showToast(
     isEditing
-      ? `✏️ 作業履歴を修正しました（${selectedFields.length} 筆）`
-      : `🎉 1アクションで ${selectedFields.length} 筆のカルテ＆作業日報を端末保存しました！`,
-    `対象: ${selectedFields.map(f => f.name).join('・')} (計${totalArea}a) ／ 画面をリロードしてもデータは保持されます。`
+      ? `✏️ 作業履歴・日誌を修正しました（${selectedFields.length} 筆）`
+      : `🎉 1アクションで ${selectedFields.length} 筆のカルテ＆営農日誌を端末保存しました！`,
+    `対象: ${selectedFields.map(f => f.name).join('・')} (計${totalArea}a) ／ 日誌タイムライン・A4帳票へ即時反映されました。`
   );
+}
+
+// =========================================================================
+// 📔 営農日誌タイムライン（検索・絞り込み・タグ挿入・ワンタップ編集）
+// =========================================================================
+function appendDiaryQuickTag(tagText) {
+  const el = document.getElementById('workDiaryMemoInput');
+  if (!el) return;
+  const cur = el.value.trim();
+  el.value = cur ? `${cur} ／ ${tagText}` : tagText;
+  recalculatePreview();
+}
+
+function renderDiaryTimeline() {
+  const listEl = document.getElementById('diaryTimelineList');
+  const countBadge = document.getElementById('diaryTotalCountBadge');
+  if (!listEl) return;
+
+  const q = (document.getElementById('diarySearchInput')?.value || '').trim().toLowerCase();
+  const catFilter = document.getElementById('diaryCatFilter')?.value || 'ALL';
+
+  const filtered = workLogs.filter(l => {
+    if (catFilter !== 'ALL' && l.cat !== catFilter) return false;
+    if (!q) return true;
+    const fNames = (l.fieldIds || []).map(id => fieldsData.find(f => f.id === id)?.name || id).join(' ');
+    const hay = `${l.date} ${l.cat} ${l.worker} ${l.weather || ''} ${l.memo || ''} ${l.materialSummary || ''} ${l.machineName || ''} ${fNames}`.toLowerCase();
+    return hay.includes(q);
+  });
+
+  if (countBadge) {
+    countBadge.textContent = `全 ${workLogs.length}件（表示 ${filtered.length}件）`;
+  }
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<div class="p-4 rounded-2xl bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--muted-foreground)] text-center">該当する営農日誌がありません。</div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered.map(l => {
+    const matchedFields = (l.fieldIds || []).map(id => fieldsData.find(f => f.id === id)).filter(Boolean);
+    const fBadges = matchedFields.map(f =>
+      `<button type="button" onclick="openFieldInGoogleMaps('${escapeHtml(f.id)}')" class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 font-semibold text-[11px] hover:bg-emerald-500/25" title="Googleマップでこの圃場を表示">📍${escapeHtml(f.name)}(${f.area}a)</button>`
+    ).join(' ');
+    const weatherStr = l.weather ? `${escapeHtml(l.weather)}${l.tempC !== undefined ? ` (${escapeHtml(l.tempC)}℃)` : ''}` : '☀️ 晴れ';
+    const memoBlock = l.memo
+      ? `<div class="mt-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-[var(--foreground)]"><span class="font-bold text-amber-700">📔 日誌メモ:</span> ${escapeHtml(l.memo)}</div>`
+      : '';
+
+    return `
+      <div class="p-3.5 rounded-2xl bg-[var(--background)] border border-[var(--border)] text-xs space-y-1.5">
+        <div class="flex items-center justify-between flex-wrap gap-1">
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-sm text-[var(--foreground)]">📅 ${escapeHtml(l.date)}</span>
+            <span class="px-2 py-0.5 rounded-lg bg-emerald-600 text-white font-bold">${escapeHtml(l.cat)}</span>
+            <span class="text-[var(--muted-foreground)] font-semibold">${weatherStr}</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="font-bold text-emerald-600">${(Number(l.duration) || 0).toFixed(1)}h (計${escapeHtml(l.totalArea)}a)</span>
+            <button type="button" onclick="editWorkLog('${escapeHtml(l.id)}')" class="px-2 py-0.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] font-semibold hover:opacity-80">✏️ 修正</button>
+            <button type="button" onclick="deleteWorkLog('${escapeHtml(l.id)}')" class="px-2 py-0.5 rounded-lg border border-red-500/40 bg-red-500/10 text-red-600 font-semibold hover:bg-red-500/20">🗑️ 取消</button>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-1 pt-0.5">${fBadges}</div>
+        <div class="text-[var(--foreground)] font-semibold">${escapeHtml(l.materialSummary)}</div>
+        <div class="text-[var(--muted-foreground)]">👤 作業者: ${escapeHtml(l.worker)} ／ 🚜 機材: ${escapeHtml(l.machineName)}</div>
+        ${memoBlock}
+      </div>
+    `;
+  }).join('');
 }
 
 // =========================================================================
@@ -950,6 +1298,7 @@ function renderGisHeatmap() {
       }">${escapeHtml(f.name)}${alertMark} (${escapeHtml(f.area)}a)</button>`;
     }).join('');
   }
+  refreshInteractiveMaps_();
 }
 
 function inspectField(fieldId) {
@@ -1039,14 +1388,19 @@ function inspectField(fieldId) {
     histContainer.innerHTML = fieldLogs.map(l => {
       const ratio = logAreaRatio_(l, f);
       const allocHr = ((Number(l.duration) || 0) * ratio).toFixed(2);
+      const weatherInfo = l.weather ? ` ／ ${escapeHtml(l.weather)}${l.tempC !== undefined ? `(${escapeHtml(l.tempC)}℃)` : ''}` : '';
+      const memoHtml = l.memo
+        ? `<div class="mt-1.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-800">📔 ${escapeHtml(l.memo)}</div>`
+        : '';
       return `
         <div class="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs">
           <div class="flex items-center justify-between font-bold text-[var(--foreground)]">
-            <span>📅 ${escapeHtml(l.date)} — ${escapeHtml(l.cat)}${l.synced ? '' : ' <span class="text-amber-600 font-semibold">(未同期)</span>'}</span>
+            <span>📅 ${escapeHtml(l.date)} — ${escapeHtml(l.cat)}${weatherInfo}${l.synced ? '' : ' <span class="text-amber-600 font-semibold">(未同期)</span>'}</span>
             <span class="text-emerald-600">按分時間: ${allocHr}h</span>
           </div>
           <div class="text-[var(--muted-foreground)] mt-1">${escapeHtml(l.materialSummary)}</div>
           <div class="text-[var(--muted-foreground)] mt-0.5">作業者: ${escapeHtml(l.worker)} ／ 機械: ${escapeHtml(l.machineName)}</div>
+          ${memoHtml}
           <div class="flex justify-end gap-1.5 mt-2">
             <button onclick="editWorkLog('${escapeHtml(l.id)}')" class="px-2 py-0.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] font-semibold hover:opacity-80">✏️ 修正</button>
             <button onclick="deleteWorkLog('${escapeHtml(l.id)}')" class="px-2 py-0.5 rounded-lg border border-red-500/40 bg-red-500/10 text-red-600 font-semibold hover:bg-red-500/20">🗑️ 取消</button>
@@ -1146,11 +1500,17 @@ function renderResourcesTab() {
     return `
       <div class="p-4 rounded-2xl bg-[var(--background)] border border-[var(--border)]">
         <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
-          <div class="font-bold text-sm text-[var(--foreground)]">${escapeHtml(m.name)}</div>
-          <div class="flex items-center gap-2">
+          <div>
+            <span class="text-[11px] font-bold text-emerald-600">[${escapeHtml(m.cat || '農機具')}] 稼働単価: ${(Number(m.hourlyCostYen) || 2500).toLocaleString()}円/h</span>
+            <div class="font-bold text-sm text-[var(--foreground)]">${escapeHtml(m.name)}</div>
+          </div>
+          <div class="flex items-center gap-1.5">
             ${badge}
             <button onclick="completeMachineMaintenance('${escapeHtml(m.id)}')" class="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition">
-              🔧 点検・オイル交換完了
+              🔧 点検完了
+            </button>
+            <button onclick="deleteMachineMaster('${escapeHtml(m.id)}')" class="px-2 py-1 rounded-lg border border-red-500/40 bg-red-500/10 text-red-600 text-xs font-bold hover:bg-red-500/20" title="機材を削除">
+              🗑️
             </button>
           </div>
         </div>
@@ -1171,16 +1531,19 @@ function renderResourcesTab() {
     return `
       <div class="p-3.5 rounded-2xl bg-[var(--background)] border border-[var(--border)] flex items-center justify-between gap-2">
         <div>
-          <span class="text-xs font-bold text-emerald-600">[肥料] N${f.n}-P${f.p}-K${f.k}</span>
+          <span class="text-xs font-bold text-emerald-600">[肥料] N${f.n}-P${f.p}-K${f.k} (${f.unitKg || 20}kg/袋・${(Number(f.priceYen) || 2500).toLocaleString()}円)</span>
           <div class="font-bold text-sm text-[var(--foreground)]">${escapeHtml(f.name)}</div>
           <div class="text-xs text-[var(--muted-foreground)]">${isLow ? '⚠️ 発注点割れ（要補充）' : '在庫十分'}</div>
         </div>
-        <div class="flex items-center gap-2.5 shrink-0">
-          <div class="text-right">
+        <div class="flex items-center gap-1.5 shrink-0">
+          <div class="text-right mr-1">
             <div class="text-base font-bold ${isLow ? 'text-amber-600' : 'text-[var(--foreground)]'}">残 ${f.stock} 袋</div>
           </div>
           <button onclick="restockMaterial('fert', '${escapeHtml(f.id)}', 10)" class="px-2.5 py-1.5 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold border border-[var(--border)] hover:opacity-80">
             ＋10袋入庫
+          </button>
+          <button onclick="deleteMaterialMaster('fert', '${escapeHtml(f.id)}')" class="px-2 py-1.5 rounded-xl border border-red-500/40 bg-red-500/10 text-red-600 text-xs font-bold hover:bg-red-500/20" title="肥料を削除">
+            🗑️
           </button>
         </div>
       </div>
@@ -1194,14 +1557,17 @@ function renderResourcesTab() {
         <div>
           <span class="text-xs font-bold text-sky-600">[農薬] ${escapeHtml(p.regNo)} (上限${p.maxUse}回)${ingLabel}</span>
           <div class="font-bold text-sm text-[var(--foreground)]">${escapeHtml(p.name)}</div>
-          <div class="text-xs text-[var(--muted-foreground)]">収穫前 ${p.phiDays} 日まで</div>
+          <div class="text-xs text-[var(--muted-foreground)]">収穫前 ${p.phiDays} 日まで ／ 単価 ${(Number(p.priceYen) || 3000).toLocaleString()}円</div>
         </div>
-        <div class="flex items-center gap-2.5 shrink-0">
-          <div class="text-right">
+        <div class="flex items-center gap-1.5 shrink-0">
+          <div class="text-right mr-1">
             <div class="text-base font-bold text-[var(--foreground)]">残 ${p.stock} 本</div>
           </div>
           <button onclick="restockMaterial('pest', '${escapeHtml(p.id)}', 5)" class="px-2.5 py-1.5 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold border border-[var(--border)] hover:opacity-80">
             ＋5本入庫
+          </button>
+          <button onclick="deleteMaterialMaster('pest', '${escapeHtml(p.id)}')" class="px-2 py-1.5 rounded-xl border border-red-500/40 bg-red-500/10 text-red-600 text-xs font-bold hover:bg-red-500/20" title="農薬を削除">
+            🗑️
           </button>
         </div>
       </div>
@@ -1422,16 +1788,18 @@ function renderReportsTab() {
 
   document.getElementById('dailyReportBody').innerHTML = workLogs.map(l => {
     const fNames = escapeHtml((l.fieldIds || []).map(id => fieldsData.find(f => f.id === id)?.name || id).join('、'));
+    const weatherNote = l.weather ? `<div class="text-[11px] text-slate-600">${escapeHtml(l.weather)}${l.tempC !== undefined ? ` (${escapeHtml(l.tempC)}℃)` : ''}</div>` : '';
+    const memoNote = l.memo ? `<div class="text-[11px] text-amber-800 mt-0.5">📔 ${escapeHtml(l.memo)}</div>` : '';
     return `
       <tr>
-        <td class="border border-slate-400 p-2">${escapeHtml(l.date)}</td>
+        <td class="border border-slate-400 p-2">${escapeHtml(l.date)}${weatherNote}</td>
         <td class="border border-slate-400 p-2 font-bold">${escapeHtml(l.cat)}</td>
         <td class="border border-slate-400 p-2">${escapeHtml(l.worker)}</td>
         <td class="border border-slate-400 p-2">${fNames}</td>
         <td class="border border-slate-400 p-2 text-right">${escapeHtml(l.totalArea)} a</td>
         <td class="border border-slate-400 p-2 text-right font-bold">${(Number(l.duration) || 0).toFixed(1)} h</td>
         <td class="border border-slate-400 p-2">${escapeHtml(l.machineName)}</td>
-        <td class="border border-slate-400 p-2">${escapeHtml(l.materialSummary)}</td>
+        <td class="border border-slate-400 p-2">${escapeHtml(l.materialSummary)}${memoNote}</td>
         <td class="no-print border border-slate-400 p-1 text-center whitespace-nowrap">
           <button onclick="editWorkLog('${escapeHtml(l.id)}')" class="px-1.5 py-0.5 rounded border border-slate-300 bg-white hover:bg-slate-100" title="修正">✏️</button>
           <button onclick="deleteWorkLog('${escapeHtml(l.id)}')" class="px-1.5 py-0.5 rounded border border-red-300 bg-red-50 hover:bg-red-100" title="取消">🗑️</button>
@@ -1540,10 +1908,10 @@ function updateCostSettingsFromUi() {
 }
 
 function exportCsvData() {
-  const header = ['作業日', '作業分類', '作業者', '対象圃場', '合計面積(a)', '作業時間(h)', '使用機械', '使用資材摘要'];
+  const header = ['作業日', '天候', '気温(℃)', '作業分類', '作業者', '対象圃場', '合計面積(a)', '作業時間(h)', '使用機械', '使用資材摘要', '日誌メモ'];
   const rows = workLogs.map(l => {
     const fNames = (l.fieldIds || []).map(id => fieldsData.find(f => f.id === id)?.name || id).join('・');
-    return [l.date, l.cat, l.worker, fNames, l.totalArea, l.duration, l.machineName, l.materialSummary].map(toCsvCell).join(',');
+    return [l.date, l.weather || '☀️ 晴れ', l.tempC ?? '', l.cat, l.worker, fNames, l.totalArea, l.duration, l.machineName, l.materialSummary, l.memo || ''].map(toCsvCell).join(',');
   });
   const csvContent = '\uFEFF' + [header.join(','), ...rows].join('\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1557,13 +1925,24 @@ function exportCsvData() {
 }
 
 // =========================================================================
-// TAB 5: マスタ追加 ＆ Googleスプレッドシート（GAS）同期・バックアップ
+// TAB 3 & TAB 5: 圃場・肥料・農薬・機材マスタ追加/削除 ＆ GAS同期・バックアップ
 // =========================================================================
+function toggleQuickAddPanel(panelId, forceOpen) {
+  const el = document.getElementById(panelId);
+  if (!el) return;
+  const open = forceOpen !== undefined ? forceOpen : el.classList.contains('hidden');
+  if (open) el.classList.remove('hidden');
+  else el.classList.add('hidden');
+}
+
 function addNewFieldMaster() {
   const name = document.getElementById('newFieldName').value.trim();
   const lot = document.getElementById('newFieldLot').value.trim() || '地番未設定';
-  const area = Number(document.getElementById('newFieldArea').value || 20);
+  const area = Math.max(1, Number(document.getElementById('newFieldArea').value || 20));
   const crop = document.getElementById('newFieldCrop').value.trim() || 'コシヒカリ (BL)';
+  const group = document.getElementById('newFieldGroup')?.value || 'yama';
+  const lat = Number(document.getElementById('newFieldLat')?.value || 37.9212);
+  const lng = Number(document.getElementById('newFieldLng')?.value || 139.0482);
 
   if (!name) {
     showToast('⚠️ 入力確認', '圃場名（通称）を入力してください。');
@@ -1575,16 +1954,16 @@ function addNewFieldMaster() {
     id: newId,
     name: name,
     lot: lot,
-    group: 'yama',
+    group: group,
     area: area,
     crop: crop,
-    headingDate: '2026/08/10',
-    targetTempC: 1000,
-    dailyMeanTempC: 23.0,
+    headingDate: group === 'yama' ? '2026/08/14' : '2026/08/08',
+    targetTempC: crop.includes('つきあかり') ? 950 : 1000,
+    dailyMeanTempC: group === 'yama' ? 23.2 : 25.5,
     harvest: '2026/09/25',
     stage: '未着手',
-    lat: 37.9212,
-    lng: 139.0482,
+    lat: lat,
+    lng: lng,
     doneCats: [],
     nPer10a: 0,
     pPer10a: 0,
@@ -1596,17 +1975,40 @@ function addNewFieldMaster() {
 
   document.getElementById('newFieldName').value = '';
   document.getElementById('newFieldLot').value = '';
+  if (document.getElementById('newFieldGmapUrl')) document.getElementById('newFieldGmapUrl').value = '';
   saveStateToStorage();
   refreshAllViews();
-  showToast(`✅ 新規圃場「${name} (${area}a)」を追加しました`, '現場一括入力およびGISマップ・カルテに即時反映されました。');
+  showToast(`✅ 新規圃場「${name} (${area}a)」を追加しました`, `GPS座標 (${lat.toFixed(4)}, ${lng.toFixed(4)}) でGoogleマップ航空写真＆GISカルテに即時反映されました。`);
 }
 
-function addNewFertilizerMaster() {
-  const name = document.getElementById('newFertName').value.trim();
-  const n = Number(document.getElementById('newFertN').value || 0);
-  const p = Number(document.getElementById('newFertP').value || 0);
-  const k = Number(document.getElementById('newFertK').value || 0);
-  const stock = Number(document.getElementById('newFertStock').value || 20);
+function deleteFieldMaster(fieldId) {
+  if (fieldsData.length <= 1) {
+    showToast('⚠️ 削除不可', '最低1筆の圃場が必要です。');
+    return;
+  }
+  const f = fieldsData.find(item => item.id === fieldId);
+  if (!f) return;
+  if (!confirm(`圃場「${f.name} (${f.area}a)」をマスタから削除しますか？`)) return;
+
+  fieldsData = fieldsData.filter(item => item.id !== fieldId);
+  selectedFieldIds = selectedFieldIds.filter(id => id !== fieldId);
+  if (selectedFieldIds.length === 0 && fieldsData[0]) selectedFieldIds = [fieldsData[0].id];
+  if (currentInspectedFieldId === fieldId && fieldsData[0]) currentInspectedFieldId = fieldsData[0].id;
+  saveStateToStorage();
+  refreshAllViews();
+  showToast(`🗑️ 圃場「${f.name}」を削除しました`, '');
+}
+
+function addNewFertilizerMaster(source) {
+  const isQuick = source === 'quick';
+  const nameEl = document.getElementById(isQuick ? 'quickFertName' : 'newFertName');
+  const name = (nameEl?.value || '').trim();
+  const n = Number(document.getElementById(isQuick ? 'quickFertN' : 'newFertN')?.value || 0);
+  const p = Number(document.getElementById(isQuick ? 'quickFertP' : 'newFertP')?.value || 0);
+  const k = Number(document.getElementById(isQuick ? 'quickFertK' : 'newFertK')?.value || 0);
+  const unitKg = Math.max(1, Number(document.getElementById(isQuick ? 'quickFertUnitKg' : 'newFertUnitKg')?.value || 20));
+  const stock = Math.max(0, Number(document.getElementById(isQuick ? 'quickFertStock' : 'newFertStock')?.value || 20));
+  const priceYen = Math.max(0, Number(document.getElementById(isQuick ? 'quickFertPrice' : 'newFertPrice')?.value || 2500));
 
   if (!name) {
     showToast('⚠️ 入力確認', '肥料名称を入力してください。');
@@ -1614,12 +2016,112 @@ function addNewFertilizerMaster() {
   }
 
   const newId = generateNextId('F', Object.keys(fertilizers));
-  fertilizers[newId] = { id: newId, name, unitKg: 20, n, p, k, stock, minStock: 10 };
-  document.getElementById('newFertName').value = '';
+  fertilizers[newId] = { id: newId, name, unitKg, n, p, k, stock, minStock: 10, priceYen };
+  if (nameEl) nameEl.value = '';
+  if (isQuick) toggleQuickAddPanel('quickFertForm', false);
   saveStateToStorage();
-  renderSelectOptions();
-  renderResourcesTab();
-  showToast(`✅ 新規肥料「${name} (N${n}-P${p}-K${k})」を追加しました`, '施肥入力時の自動NPK計算リストに追加されました。');
+  refreshAllViews();
+  showToast(`✅ 新規肥料「${name} (N${n}-P${p}-K${k})」を追加しました`, '施肥入力リストおよび在庫・原価計算へ即時反映されました。');
+}
+
+function addNewPesticideMaster(source) {
+  const isQuick = source === 'quick';
+  const nameEl = document.getElementById(isQuick ? 'quickPestName' : 'newPestName');
+  const regEl = document.getElementById(isQuick ? 'quickPestRegNo' : 'newPestRegNo');
+  const ingEl = document.getElementById(isQuick ? 'quickPestIngredient' : 'newPestIngredient');
+  const name = (nameEl?.value || '').trim();
+  const regNo = (regEl?.value || '').trim() || '登録番号未設定';
+  const activeIngredient = (ingEl?.value || '').trim() || name;
+  const maxUse = Math.max(1, Number(document.getElementById(isQuick ? 'quickPestMaxUse' : 'newPestMaxUse')?.value || 2));
+  const phiDays = Math.max(1, Number(document.getElementById(isQuick ? 'quickPestPhiDays' : 'newPestPhiDays')?.value || 14));
+  const stock = Math.max(0, Number(document.getElementById(isQuick ? 'quickPestStock' : 'newPestStock')?.value || 10));
+  const priceYen = Math.max(0, Number(document.getElementById(isQuick ? 'quickPestPrice' : 'newPestPrice')?.value || 3000));
+
+  if (!name) {
+    showToast('⚠️ 入力確認', '農薬名称を入力してください。');
+    return;
+  }
+
+  const newId = generateNextId('P', Object.keys(pesticides));
+  pesticides[newId] = {
+    id: newId,
+    name,
+    regNo,
+    activeIngredient,
+    maxUse,
+    phiDays,
+    stock,
+    unit: '本(500mL)',
+    priceYen
+  };
+  if (nameEl) nameEl.value = '';
+  if (regEl) regEl.value = '';
+  if (ingEl) ingEl.value = '';
+  if (isQuick) toggleQuickAddPanel('quickPestForm', false);
+  saveStateToStorage();
+  refreshAllViews();
+  showToast(`✅ 新規農薬「${name}（有効成分: ${activeIngredient}）」を追加しました`, `使用上限${maxUse}回・収穫前${phiDays}日(PHI)の安全基準チェックへ連動しました。`);
+}
+
+function addNewMachineMaster(source) {
+  const isQuick = source === 'quick';
+  const nameEl = document.getElementById(isQuick ? 'quickMachName' : 'newMachName');
+  const name = (nameEl?.value || '').trim();
+  const cat = document.getElementById(isQuick ? 'quickMachCat' : 'newMachCat')?.value || 'トラクター';
+  const currentHour = Math.max(0, Number(document.getElementById(isQuick ? 'quickMachHour' : 'newMachHour')?.value || 0));
+  const interval = Math.max(10, Number(document.getElementById(isQuick ? 'quickMachInterval' : 'newMachInterval')?.value || 50));
+  const hourlyCostYen = Math.max(0, Number(document.getElementById(isQuick ? 'quickMachCost' : 'newMachCost')?.value || 2500));
+
+  if (!name) {
+    showToast('⚠️ 入力確認', '機材・農機具名称を入力してください。');
+    return;
+  }
+
+  const newId = generateNextId('M', Object.keys(machines));
+  machines[newId] = {
+    id: newId,
+    name,
+    cat,
+    currentHour,
+    nextMaint: Math.round((currentHour + interval) * 10) / 10,
+    interval,
+    hourlyCostYen
+  };
+  if (nameEl) nameEl.value = '';
+  if (isQuick) toggleQuickAddPanel('quickMachineForm', false);
+  saveStateToStorage();
+  refreshAllViews();
+  showToast(`✅ 新規機材「${name} (${cat})」を追加しました`, `現在 ${currentHour}h ／ 次回点検 ${machines[newId].nextMaint}h でアワーメーター管理へ追加されました。`);
+}
+
+function deleteMachineMaster(machId) {
+  if (Object.keys(machines).length <= 1) {
+    showToast('⚠️ 削除不可', '最低1台の機材マスタが必要です。');
+    return;
+  }
+  const m = machines[machId];
+  if (!m) return;
+  if (!confirm(`機材「${m.name}」をマスタから削除しますか？`)) return;
+  delete machines[machId];
+  saveStateToStorage();
+  refreshAllViews();
+  showToast(`🗑️ 機材「${m.name}」を削除しました`, '');
+}
+
+function deleteMaterialMaster(type, id) {
+  const dict = type === 'fert' ? fertilizers : pesticides;
+  const label = type === 'fert' ? '肥料' : '農薬';
+  if (Object.keys(dict).length <= 1) {
+    showToast('⚠️ 削除不可', `最低1銘柄の${label}マスタが必要です。`);
+    return;
+  }
+  const item = dict[id];
+  if (!item) return;
+  if (!confirm(`${label}「${item.name}」をマスタから削除しますか？`)) return;
+  delete dict[id];
+  saveStateToStorage();
+  refreshAllViews();
+  showToast(`🗑️ ${label}「${item.name}」を削除しました`, '');
 }
 
 function saveGasUrl() {

@@ -44,6 +44,9 @@ const DEFAULT_STATE = {
       date: '2026/04/25',
       cat: '草刈り',
       worker: '佐藤 健一',
+      weather: '☀️ 晴れ',
+      tempC: 19,
+      memo: '本場団地および上山田棚田Cの畦畔・法面草刈りを実施。棚田C北側の水口周辺に軽微な水漏れを確認したため次回補修予定。',
       fieldIds: ['F01', 'F02', 'F03', 'F07'],
       totalArea: 122,
       duration: 3.0,
@@ -58,6 +61,9 @@ const DEFAULT_STATE = {
       date: '2026/05/01',
       cat: '施肥',
       worker: '佐藤 健一',
+      weather: '⛅ 曇り',
+      tempC: 21,
+      memo: '本場1〜3号（計100a）へ基肥散布。風が弱くブロードキャスタでの均一散布が良好。明日は代かき予定。',
       fieldIds: ['F01', 'F02', 'F03'],
       totalArea: 100,
       duration: 2.0,
@@ -81,6 +87,9 @@ const DEFAULT_STATE = {
       date: '2026/08/01',
       cat: '防除',
       worker: '高橋 誠（オペレーター）',
+      weather: '☀️ 晴れ',
+      tempC: 28,
+      memo: '早朝5:30よりドローンT30で穂いもち予防散布。風速1.5m/s以下でドリフトなし。出穂は8/8頃の見込み。',
       fieldIds: ['F01', 'F02', 'F03'],
       totalArea: 100,
       duration: 1.5,
@@ -218,6 +227,29 @@ function toCsvCell(value) {
 function getTodayIsoDate() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Googleマップの共有URLや「37.9161, 139.0364」形式の文字列から緯度・経度を抽出する
+ */
+function parseGoogleMapsCoords(inputStr) {
+  const s = String(inputStr || '').trim();
+  if (!s) return null;
+  // 1. !3d37.9161!4d139.0364 形式（ピン座標）
+  const bangMatch = s.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (bangMatch) {
+    return { lat: parseFloat(bangMatch[1]), lng: parseFloat(bangMatch[2]) };
+  }
+  // 2. @37.9161,139.0364 または q=37.9161,139.0364 または ll=37.9161,139.0364 または 生の座標ペア
+  const pairMatch = s.match(/(-?\d{2}\.\d{3,})\s*,\s*(-?\d{2,3}\.\d{3,})/);
+  if (pairMatch) {
+    const lat = parseFloat(pairMatch[1]);
+    const lng = parseFloat(pairMatch[2]);
+    if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      return { lat, lng };
+    }
+  }
+  return null;
 }
 
 function getLogPesticideIds(log) {
@@ -408,12 +440,21 @@ function applyParsedState_(parsed) {
     if (!Array.isArray(f.alerts)) f.alerts = defField?.alerts ? JSON.parse(JSON.stringify(defField.alerts)) : [];
   });
 
-  fertilizers = { ...def.fertilizers, ...(parsed.fertilizers || {}) };
+  fertilizers = (parsed.fertilizers && Object.keys(parsed.fertilizers).length > 0)
+    ? parsed.fertilizers
+    : def.fertilizers;
   Object.keys(fertilizers).forEach(fid => {
     if (!fertilizers[fid].priceYen) fertilizers[fid].priceYen = def.fertilizers[fid]?.priceYen || 2500;
+    if (!fertilizers[fid].unitKg) fertilizers[fid].unitKg = def.fertilizers[fid]?.unitKg || 20;
   });
 
-  pesticides = { ...def.pesticides, ...(parsed.pesticides || {}) };
+  pesticides = (parsed.pesticides && Object.keys(parsed.pesticides).length > 0)
+    ? parsed.pesticides
+    : def.pesticides;
+  // P04が未追加の旧キャッシュにはP04を補完
+  if (!pesticides.P04 && def.pesticides.P04 && !parsed._p04Removed) {
+    pesticides.P04 = def.pesticides.P04;
+  }
   Object.keys(pesticides).forEach(pid => {
     if (!pesticides[pid].activeIngredient && def.pesticides[pid]) {
       pesticides[pid].activeIngredient = def.pesticides[pid].activeIngredient;
@@ -421,13 +462,21 @@ function applyParsedState_(parsed) {
     if (!pesticides[pid].priceYen) pesticides[pid].priceYen = def.pesticides[pid]?.priceYen || 3000;
   });
 
-  machines = { ...def.machines, ...(parsed.machines || {}) };
+  machines = (parsed.machines && Object.keys(parsed.machines).length > 0)
+    ? parsed.machines
+    : def.machines;
   Object.keys(machines).forEach(mid => {
     if (!machines[mid].hourlyCostYen) machines[mid].hourlyCostYen = def.machines[mid]?.hourlyCostYen || 2500;
   });
 
   costSettings = { ...def.costSettings, ...(parsed.costSettings || {}) };
   workLogs = Array.isArray(parsed.workLogs) ? parsed.workLogs : def.workLogs;
+  workLogs.forEach(l => {
+    const defLog = def.workLogs.find(dl => dl.id === l.id);
+    if (!l.weather) l.weather = defLog?.weather || '☀️ 晴れ';
+    if (l.tempC === undefined) l.tempC = defLog?.tempC ?? 24;
+    if (l.memo === undefined) l.memo = defLog?.memo || '';
+  });
   gasWebhookUrl = parsed.gasWebhookUrl || '';
 }
 

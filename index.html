@@ -9,6 +9,8 @@
   <link rel="manifest" href="./manifest.json">
   <title>らくらく営農日誌 Next - 本格PWA版</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <link rel="stylesheet" href="./css/styles.css">
 </head>
 <body class="bg-[var(--background)] text-[var(--foreground)] antialiased p-3 md:p-6">
@@ -120,19 +122,38 @@
             <h3 class="text-sm font-bold text-[var(--foreground)]">対象圃場を選択（複数タップ可・飛び地一括対応）</h3>
           </div>
           <div class="flex flex-wrap gap-1.5">
-            <button onclick="detectGpsNearestFields()" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-sm">
-              🛰️ 実GPSで現在地周辺を自動選択
+            <button type="button" onclick="toggleInputGoogleMap()" id="btnToggleInputMap" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-sky-600 text-white hover:bg-sky-700 transition shadow-sm">
+              🗺️ Googleマップ航空写真で選択
             </button>
-            <button onclick="selectFieldGroup('yama')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80 transition">
+            <button type="button" onclick="detectGpsNearestFields()" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-sm">
+              🛰️ 実GPSで周辺選択
+            </button>
+            <button type="button" onclick="selectFieldGroup('yama')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80 transition">
               ⛰️ 山間飛び地(3筆)
             </button>
-            <button onclick="selectFieldGroup('all')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80 transition">
+            <button type="button" onclick="selectFieldGroup('all')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80 transition">
               全選択
             </button>
           </div>
         </div>
 
         <div id="gpsStatusBanner" class="hidden mb-2.5 px-3 py-1.5 rounded-lg bg-sky-500/15 border border-sky-500/30 text-sky-600 text-xs font-semibold"></div>
+
+        <!-- Googleマップ（航空写真・ハイブリッド）連動 圃場選択ドロワー -->
+        <div id="inputGoogleMapWrap" class="hidden mb-3 rounded-2xl overflow-hidden border-2 border-sky-500/50 bg-stone-900">
+          <div class="flex items-center justify-between flex-wrap gap-2 px-3 py-2 bg-stone-950 text-white text-xs">
+            <div class="font-bold flex items-center gap-1.5">
+              <span>🛰️ Googleマップ航空写真 連動ピッカー</span>
+              <span class="text-emerald-300 font-normal">（ピンや区画をタップすると選択/解除できます）</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button type="button" onclick="panGoogleMapToGroup('input', 'gps')" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-emerald-300 font-semibold">📍 本場エリア</button>
+              <button type="button" onclick="panGoogleMapToGroup('input', 'yama')" class="px-2 py-1 rounded bg-stone-800 hover:bg-stone-700 text-amber-300 font-semibold">⛰️ 上山田飛び地</button>
+              <button type="button" onclick="openSelectedFieldsInGoogleMaps()" class="px-2 py-1 rounded bg-sky-600 hover:bg-sky-700 text-white font-bold">↗ Googleマップアプリで開く</button>
+            </div>
+          </div>
+          <div id="inputGoogleMapCanvas" class="w-full h-64 bg-stone-800"></div>
+        </div>
 
         <!-- 圃場タイルボタン群 -->
         <div id="inputFieldGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-3">
@@ -181,20 +202,45 @@
           </div>
 
           <div>
-            <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">使用機械（稼働時間を自動加算）</label>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="block text-xs font-bold text-[var(--muted-foreground)]">使用機械（稼働時間を自動加算）</label>
+              <button type="button" onclick="switchMainTab('resource'); toggleQuickAddPanel('quickMachineForm', true)" class="text-xs font-bold text-emerald-600 hover:underline">＋ 新規機材を追加</button>
+            </div>
             <select id="machineSelect" onchange="recalculatePreview()" class="w-full h-11 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-semibold text-[var(--foreground)]">
               <!-- JSで動的描画 -->
             </select>
+          </div>
+        </div>
+
+        <!-- 天候・気温入力バー（営農日誌用） -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3 pt-3 border-t border-[var(--border)]">
+          <div>
+            <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">当日の天候（日誌記録）</label>
+            <select id="workWeatherSelect" onchange="recalculatePreview()" class="w-full h-10 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-xs font-bold text-[var(--foreground)]">
+              <option value="☀️ 晴れ">☀️ 晴れ</option>
+              <option value="⛅ 曇り">⛅ 曇り</option>
+              <option value="🌧️ 雨">🌧️ 雨・小雨</option>
+              <option value="💨 強風">💨 強風（散布注意）</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">気温 (℃・任意)</label>
+            <input type="number" id="workTempInput" value="25" step="1" onchange="recalculatePreview()" class="w-full h-10 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-xs font-bold text-[var(--foreground)]">
           </div>
         </div>
       </div>
 
       <!-- STEP 3: 資材入力（施肥NPK自動計算 / 防除希釈逆算＆安全基準チェック） -->
       <div id="materialSection" class="mb-5 bg-[var(--background)] border border-[var(--border)] rounded-2xl p-4">
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
           <div class="flex items-center gap-2">
             <span class="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">3</span>
             <h3 class="text-sm font-bold text-[var(--foreground)]" id="materialSectionTitle">使用資材・自動計算</h3>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <button type="button" onclick="switchMainTab('resource'); toggleQuickAddPanel('quickFertForm', true)" class="font-bold text-emerald-600 hover:underline">＋ 肥料銘柄を追加</button>
+            <span class="text-[var(--muted-foreground)]">/</span>
+            <button type="button" onclick="switchMainTab('resource'); toggleQuickAddPanel('quickPestForm', true)" class="font-bold text-sky-600 hover:underline">＋ 農薬銘柄を追加</button>
           </div>
         </div>
 
@@ -335,6 +381,24 @@
         </div>
       </div>
 
+      <!-- STEP 4: 営農日誌メモ・生育観察・引き継ぎ事項 -->
+      <div class="mb-5 bg-[var(--background)] border border-[var(--border)] rounded-2xl p-4">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">4</span>
+            <h3 class="text-sm font-bold text-[var(--foreground)]">📔 営農日誌メモ・生育観察・引き継ぎ記録（任意）</h3>
+          </div>
+          <div class="flex flex-wrap gap-1">
+            <button type="button" onclick="appendDiaryQuickTag('生育良好・葉色適期')" class="px-2 py-0.5 rounded-lg bg-[var(--secondary)] text-[var(--secondary-foreground)] text-[11px] font-semibold hover:opacity-80">＋生育良好</button>
+            <button type="button" onclick="appendDiaryQuickTag('水口・止水確認済')" class="px-2 py-0.5 rounded-lg bg-[var(--secondary)] text-[var(--secondary-foreground)] text-[11px] font-semibold hover:opacity-80">＋水管理確認</button>
+            <button type="button" onclick="appendDiaryQuickTag('畦畔・水尻異常なし')" class="px-2 py-0.5 rounded-lg bg-[var(--secondary)] text-[var(--secondary-foreground)] text-[11px] font-semibold hover:opacity-80">＋畦畔異常なし</button>
+            <button type="button" onclick="appendDiaryQuickTag('雑草・ヒエ部分発生あり')" class="px-2 py-0.5 rounded-lg bg-[var(--secondary)] text-[var(--secondary-foreground)] text-[11px] font-semibold hover:opacity-80">＋雑草注意</button>
+            <button type="button" onclick="appendDiaryQuickTag('【引き継ぎ】')" class="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-700 text-[11px] font-bold hover:opacity-80">＋引き継ぎ</button>
+          </div>
+        </div>
+        <textarea id="workDiaryMemoInput" rows="2" oninput="recalculatePreview()" placeholder="作業の気づき、稲の生育状況・草丈・葉色、水管理、次回作業者への引き継ぎメモなどを自由に記入できます..." class="w-full p-2.5 rounded-xl bg-[var(--card)] border border-[var(--border)] text-xs text-[var(--foreground)]"></textarea>
+      </div>
+
       <!-- 修正モード表示バー -->
       <div id="editModeBanner" class="hidden mb-3 p-3 rounded-xl border border-amber-500/50 bg-amber-500/15 text-amber-700 text-xs font-bold flex items-center justify-between gap-2">
         <span id="editModeText"></span>
@@ -404,6 +468,33 @@
           </div>
         </div>
       </div>
+
+      <!-- 📔 営農日誌タイムライン（検索・絞り込み・ワンタップ編集・取消） -->
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div>
+            <h3 class="text-base font-bold text-[var(--foreground)]">📔 営農日誌タイムライン（作業記録・観察メモ）</h3>
+            <p class="text-xs text-[var(--muted-foreground)]">登録した日誌・天候・メモを時系列で確認・検索・修正できます。</p>
+          </div>
+          <span id="diaryTotalCountBadge" class="px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 text-xs font-bold">0件</span>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-2 mb-3">
+          <input type="text" id="diarySearchInput" oninput="renderDiaryTimeline()" placeholder="🔍 日誌を検索（圃場名・資材・メモ・作業者）..." class="flex-1 px-3 py-1.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--foreground)]">
+          <select id="diaryCatFilter" onchange="renderDiaryTimeline()" class="px-2.5 py-1.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs font-bold text-[var(--foreground)]">
+            <option value="ALL">すべての分類</option>
+            <option value="施肥">🧪 施肥</option>
+            <option value="防除">🛡️ 防除</option>
+            <option value="草刈り">🌿 草刈り</option>
+            <option value="耕起">🚜 耕起</option>
+            <option value="代かき">🌊 代かき</option>
+            <option value="田植え">🌱 田植え</option>
+            <option value="収穫">🌾 収穫・刈取</option>
+          </select>
+        </div>
+
+        <div id="diaryTimelineList" class="space-y-2.5 max-h-96 overflow-y-auto pr-1"></div>
+      </div>
     </div>
   </section>
 
@@ -427,7 +518,27 @@
         </div>
       </div>
 
-      <div class="relative rounded-2xl overflow-hidden border border-[var(--border)] bg-stone-900">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div class="flex items-center gap-1.5">
+          <button type="button" onclick="switchGisMapMode('svg')" id="gisModeBtn-svg" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 text-white">📊 進捗ブロック図（圏外対応）</button>
+          <button type="button" onclick="switchGisMapMode('google')" id="gisModeBtn-google" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">🛰️ Googleマップ航空写真（実座標）</button>
+        </div>
+        <div class="flex items-center gap-1.5 text-xs">
+          <button type="button" onclick="panGoogleMapToGroup('gis', 'gps')" class="px-2.5 py-1 rounded-lg bg-[var(--secondary)] text-[var(--secondary-foreground)] font-semibold hover:opacity-80">📍 本場エリア</button>
+          <button type="button" onclick="panGoogleMapToGroup('gis', 'yama')" class="px-2.5 py-1 rounded-lg bg-[var(--secondary)] text-[var(--secondary-foreground)] font-semibold hover:opacity-80">⛰️ 上山田飛び地</button>
+        </div>
+      </div>
+
+      <!-- Googleマップ航空写真モード（Tab 2 GIS用） -->
+      <div id="gisGoogleMapWrap" class="hidden mb-3 rounded-2xl overflow-hidden border-2 border-emerald-500/50 bg-stone-900">
+        <div id="gisGoogleMapCanvas" class="w-full h-[420px] bg-stone-800"></div>
+        <div class="flex items-center justify-between flex-wrap gap-2 px-4 py-2 bg-stone-950 text-white text-xs">
+          <span>🛰️ Google航空写真・ハイブリッド地図（圃場ピンまたはポリゴンをクリックすると右側にカルテを表示します）</span>
+          <button type="button" onclick="openFieldInGoogleMaps(currentInspectedFieldId)" class="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-700 text-white font-bold">↗ 選択圃場をGoogleマップで開く</button>
+        </div>
+      </div>
+
+      <div id="gisSvgMapWrap" class="relative rounded-2xl overflow-hidden border border-[var(--border)] bg-stone-900">
         <svg viewBox="0 0 760 440" class="w-full h-auto block select-none">
           <rect width="760" height="440" fill="#1e2923"/>
           <path d="M 430 0 L 760 0 L 760 250 L 490 210 Z" fill="#142018"/>
@@ -493,14 +604,22 @@
 
     <!-- 右：圃場詳細カルテ -->
     <div class="lg:col-span-5 bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
-      <div class="flex items-center justify-between pb-3 mb-4 border-b border-[var(--border)]">
+      <div class="flex items-center justify-between flex-wrap gap-2 pb-3 mb-4 border-b border-[var(--border)]">
         <div>
           <span class="text-xs font-bold text-emerald-600">FIELD KARTE</span>
           <h3 class="text-lg font-bold text-[var(--foreground)]" id="karteTitle">① 本場1号</h3>
         </div>
-        <button onclick="jumpToInputWithField()" class="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition">
-          ＋ この圃場で作業入力
-        </button>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <button type="button" onclick="openFieldInGoogleMaps(currentInspectedFieldId)" class="px-2.5 py-1.5 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 transition" title="Googleマップで場所と経路を表示">
+            📍 Googleマップ
+          </button>
+          <button type="button" onclick="jumpToInputWithField()" class="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition">
+            ＋ この圃場で作業入力
+          </button>
+          <button type="button" onclick="deleteFieldMaster(currentInspectedFieldId)" class="px-2 py-1.5 rounded-xl border border-red-500/40 bg-red-500/10 text-red-600 text-xs font-bold hover:bg-red-500/20 transition" title="この圃場を削除">
+            🗑️
+          </button>
+        </div>
       </div>
 
       <div class="grid grid-cols-3 gap-2.5 mb-4 text-center">
@@ -611,18 +730,157 @@
   <!-- ========================================================================= -->
   <section id="tab-resource" class="hidden grid-cols-1 lg:grid-cols-2 gap-6">
     <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
-      <div class="mb-4">
-        <h2 class="text-lg font-bold text-[var(--foreground)]">🚜 農機具アワーメーター・点検記録</h2>
-        <p class="text-xs text-[var(--muted-foreground)]">日誌登録で稼働時間が自動加算されます。「🔧 点検・オイル交換完了」を押すと次回目安が更新されます。</p>
+      <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <div>
+          <h2 class="text-lg font-bold text-[var(--foreground)]">🚜 農機具アワーメーター・点検記録</h2>
+          <p class="text-xs text-[var(--muted-foreground)]">日誌登録で稼働時間が自動加算されます。新しい機材の追加・削除もここから行えます。</p>
+        </div>
+        <button type="button" onclick="toggleQuickAddPanel('quickMachineForm')" class="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition">
+          ＋ 新規機材を追加
+        </button>
       </div>
+
+      <!-- クイック機材追加フォーム（Tab 3内） -->
+      <div id="quickMachineForm" class="hidden mb-4 p-4 rounded-2xl bg-[var(--background)] border-2 border-emerald-500/40 text-xs space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-emerald-600">🚜 新しい農機具・機材を登録</span>
+          <button type="button" onclick="toggleQuickAddPanel('quickMachineForm', false)" class="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">✕ 閉じる</button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div class="sm:col-span-2">
+            <label class="block font-bold mb-1">機材・農機具名</label>
+            <input type="text" id="quickMachName" placeholder="例: クボタ コンバイン ER470" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">分類</label>
+            <select id="quickMachCat" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)] font-semibold">
+              <option value="トラクター">トラクター</option>
+              <option value="コンバイン">コンバイン</option>
+              <option value="田植機">田植機</option>
+              <option value="乗用モア・草刈機">乗用モア・草刈機</option>
+              <option value="ドローン・防除機">ドローン・防除機</option>
+              <option value="乾燥機・その他">乾燥機・その他</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-bold mb-1">現在アワー (h)</label>
+            <input type="number" step="0.5" id="quickMachHour" value="50" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">点検間隔 (hごと)</label>
+            <input type="number" step="10" id="quickMachInterval" value="50" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">稼働単価 (円/h)</label>
+            <input type="number" step="100" id="quickMachCost" value="2500" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+        </div>
+        <button type="button" onclick="addNewMachineMaster('quick')" class="w-full py-2 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition">
+          ✅ 機材マスタに追加する
+        </button>
+      </div>
+
       <div id="machineCardList" class="space-y-3"></div>
     </div>
 
     <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
-      <div class="mb-4">
-        <h2 class="text-lg font-bold text-[var(--foreground)]">📦 肥料・農薬 在庫リアルタイム管理（入庫補充対応）</h2>
-        <p class="text-xs text-[var(--muted-foreground)]">日誌で施用記録をつけると自動引落されます。購入した際は「＋入庫」ボタンで在庫を追加できます。</p>
+      <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <div>
+          <h2 class="text-lg font-bold text-[var(--foreground)]">📦 肥料・農薬 在庫リアルタイム管理（入庫・新規追加対応）</h2>
+          <p class="text-xs text-[var(--muted-foreground)]">日誌で施用記録をつけると自動引落されます。「＋肥料追加」「＋農薬追加」で新銘柄も登録できます。</p>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <button type="button" onclick="toggleQuickAddPanel('quickFertForm')" class="px-2.5 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition">
+            ＋ 肥料を追加
+          </button>
+          <button type="button" onclick="toggleQuickAddPanel('quickPestForm')" class="px-2.5 py-1.5 rounded-xl bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 transition">
+            ＋ 農薬を追加
+          </button>
+        </div>
       </div>
+
+      <!-- クイック肥料追加フォーム（Tab 3内） -->
+      <div id="quickFertForm" class="hidden mb-4 p-4 rounded-2xl bg-[var(--background)] border-2 border-emerald-500/40 text-xs space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-emerald-600">🧪 新しい肥料銘柄を登録</span>
+          <button type="button" onclick="toggleQuickAddPanel('quickFertForm', false)" class="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">✕ 閉じる</button>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          <div class="col-span-2 sm:col-span-3">
+            <label class="block font-bold mb-1">肥料名称</label>
+            <input type="text" id="quickFertName" placeholder="例: ケイカル（土壌改良材） / 有機化成888" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">チッソ N(%)</label>
+            <input type="number" id="quickFertN" value="8" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">リン酸 P(%)</label>
+            <input type="number" id="quickFertP" value="8" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">カリ K(%)</label>
+            <input type="number" id="quickFertK" value="8" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">1袋重量(kg)</label>
+            <input type="number" id="quickFertUnitKg" value="20" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">初期在庫(袋)</label>
+            <input type="number" id="quickFertStock" value="30" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">1袋単価(円)</label>
+            <input type="number" step="50" id="quickFertPrice" value="2500" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+        </div>
+        <button type="button" onclick="addNewFertilizerMaster('quick')" class="w-full py-2 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition">
+          ✅ 肥料マスタに追加する
+        </button>
+      </div>
+
+      <!-- クイック農薬追加フォーム（Tab 3内） -->
+      <div id="quickPestForm" class="hidden mb-4 p-4 rounded-2xl bg-[var(--background)] border-2 border-sky-500/40 text-xs space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="font-bold text-sky-600">🛡️ 新しい農薬銘柄を登録（有効成分・PHI安全チェック連動）</span>
+          <button type="button" onclick="toggleQuickAddPanel('quickPestForm', false)" class="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">✕ 閉じる</button>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          <div class="col-span-2">
+            <label class="block font-bold mb-1">農薬名称</label>
+            <input type="text" id="quickPestName" placeholder="例: キラップフロアブル" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">農薬登録番号</label>
+            <input type="text" id="quickPestRegNo" placeholder="例: 第22501号" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div class="col-span-2 sm:col-span-1">
+            <label class="block font-bold mb-1">有効成分名（総回数判定用）</label>
+            <input type="text" id="quickPestIngredient" placeholder="例: エチプロール" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">使用上限(回)</label>
+            <input type="number" id="quickPestMaxUse" value="2" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">収穫前日数(PHI)</label>
+            <input type="number" id="quickPestPhiDays" value="14" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">初期在庫(本/袋)</label>
+            <input type="number" id="quickPestStock" value="12" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">単価(円/本)</label>
+            <input type="number" step="100" id="quickPestPrice" value="3200" class="w-full px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)]">
+          </div>
+        </div>
+        <button type="button" onclick="addNewPesticideMaster('quick')" class="w-full py-2 rounded-xl bg-sky-600 text-white font-bold hover:bg-sky-700 transition">
+          ✅ 農薬マスタに追加する
+        </button>
+      </div>
+
       <div id="materialStockList" class="space-y-3"></div>
     </div>
   </section>
@@ -892,18 +1150,33 @@
       </div>
     </div>
     
-    <!-- 左：新規圃場（田んぼ）＆ 新規資材の追加登録 -->
+    <!-- 左：新規圃場（Googleマップ位置連携）＆ 新規資材（肥料・農薬）の追加登録 -->
     <div class="space-y-6">
       <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
-        <h2 class="text-base font-bold text-[var(--foreground)] mb-1">➕ 新しい圃場（田んぼ）を追加登録</h2>
-        <p class="text-xs text-[var(--muted-foreground)] mb-4">追加した圃場は即座に現場入力画面とGISカルテに反映され、端末内に保存されます。</p>
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+          <h2 class="text-base font-bold text-[var(--foreground)]">➕ 新しい圃場（田んぼ）を追加登録（Googleマップ連携）</h2>
+          <button type="button" onclick="toggleNewFieldMapPicker()" class="px-2.5 py-1 rounded-lg bg-sky-600 text-white text-xs font-bold hover:bg-sky-700 transition">
+            🗺️ 地図クリックで位置指定
+          </button>
+        </div>
+        <p class="text-xs text-[var(--muted-foreground)] mb-3">GoogleマップのURL貼り付け、または航空写真マップ上のクリックで正確な緯度・経度を取得して登録できます。</p>
+
+        <!-- 新規圃場登録用 Googleマップピッカー -->
+        <div id="newFieldMapPickerWrap" class="hidden mb-3 rounded-2xl overflow-hidden border-2 border-sky-500/50 bg-stone-900">
+          <div class="px-3 py-1.5 bg-stone-950 text-white text-xs flex items-center justify-between">
+            <span>📍 登録したい田んぼの位置を航空写真上でクリックしてください</span>
+            <button type="button" onclick="toggleNewFieldMapPicker(false)" class="text-stone-400 hover:text-white">✕ 閉じる</button>
+          </div>
+          <div id="newFieldMapPickerCanvas" class="w-full h-56 bg-stone-800"></div>
+        </div>
+
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div>
             <label class="block font-bold mb-1">圃場名（通称）</label>
             <input type="text" id="newFieldName" placeholder="例: ⑧ 山田沢4号" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
           </div>
           <div>
-            <label class="block font-bold mb-1">地番</label>
+            <label class="block font-bold mb-1">地番・所在地</label>
             <input type="text" id="newFieldLot" placeholder="例: 上山田字沢 95-1" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
           </div>
           <div>
@@ -914,16 +1187,36 @@
             <label class="block font-bold mb-1">作付品種</label>
             <input type="text" id="newFieldCrop" value="コシヒカリ (BL)" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
           </div>
+          <div>
+            <label class="block font-bold mb-1">団地・エリア区分</label>
+            <select id="newFieldGroup" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)] font-semibold">
+              <option value="gps">📍 本場平場団地</option>
+              <option value="yama" selected>⛰️ 中山間・上山田飛び地</option>
+              <option value="river">🌊 川向団地</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-bold mb-1">GoogleマップURL / 座標貼り付け</label>
+            <input type="text" id="newFieldGmapUrl" oninput="applyGoogleMapsUrlToFieldForm(this.value)" placeholder="GoogleマップURLまたは 37.921, 139.048" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">緯度 (Latitude)</label>
+            <input type="number" step="0.0001" id="newFieldLat" value="37.9212" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)] font-mono">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">経度 (Longitude)</label>
+            <input type="number" step="0.0001" id="newFieldLng" value="139.0482" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)] font-mono">
+          </div>
         </div>
         <button onclick="addNewFieldMaster()" class="mt-4 w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition">
-          ＋ 圃場マスタへ追加保存
+          ＋ 圃場マスタへ追加保存（Googleマップ＆GISへ即時反映）
         </button>
       </div>
 
       <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
         <h2 class="text-base font-bold text-[var(--foreground)] mb-1">🧪 新しい肥料銘柄を追加登録</h2>
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs mt-3">
-          <div class="col-span-2 sm:col-span-4">
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs mt-3">
+          <div class="col-span-2 sm:col-span-3">
             <label class="block font-bold mb-1">肥料名称</label>
             <input type="text" id="newFertName" placeholder="例: 有機入り化成888" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
           </div>
@@ -940,18 +1233,99 @@
             <input type="number" id="newFertK" value="8" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
           </div>
           <div>
+            <label class="block font-bold mb-1">1袋重量(kg)</label>
+            <input type="number" id="newFertUnitKg" value="20" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
             <label class="block font-bold mb-1">初期在庫(袋)</label>
             <input type="number" id="newFertStock" value="30" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
           </div>
+          <div>
+            <label class="block font-bold mb-1">1袋単価(円)</label>
+            <input type="number" step="50" id="newFertPrice" value="2500" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
         </div>
-        <button onclick="addNewFertilizerMaster()" class="mt-4 w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition">
+        <button onclick="addNewFertilizerMaster('settings')" class="mt-4 w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition">
           ＋ 肥料マスタへ追加保存
+        </button>
+      </div>
+
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+        <h2 class="text-base font-bold text-[var(--foreground)] mb-1">🛡️ 新しい農薬銘柄を追加登録（有効成分・PHI対応）</h2>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs mt-3">
+          <div class="col-span-2">
+            <label class="block font-bold mb-1">農薬名称</label>
+            <input type="text" id="newPestName" placeholder="例: キラップフロアブル" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">登録番号</label>
+            <input type="text" id="newPestRegNo" placeholder="例: 第22501号" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div class="col-span-2 sm:col-span-1">
+            <label class="block font-bold mb-1">有効成分名</label>
+            <input type="text" id="newPestIngredient" placeholder="例: エチプロール" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">使用上限(回)</label>
+            <input type="number" id="newPestMaxUse" value="2" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">収穫前日数(PHI)</label>
+            <input type="number" id="newPestPhiDays" value="14" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">初期在庫(本/袋)</label>
+            <input type="number" id="newPestStock" value="12" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">単価(円/本)</label>
+            <input type="number" step="100" id="newPestPrice" value="3200" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+        </div>
+        <button onclick="addNewPesticideMaster('settings')" class="mt-4 w-full py-2.5 rounded-xl bg-sky-600 text-white font-bold text-xs hover:bg-sky-700 transition">
+          ＋ 農薬マスタへ追加保存
         </button>
       </div>
     </div>
 
-    <!-- 右：Googleスプレッドシート（GAS）連携設定 ＆ バックアップ管理 -->
+    <!-- 右：新規機材追加 ＆ Googleスプレッドシート（GAS）連携設定 ＆ バックアップ管理 -->
     <div class="space-y-6">
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+        <h2 class="text-base font-bold text-[var(--foreground)] mb-1">🚜 新しい機材（農機具・ドローン等）を追加登録</h2>
+        <p class="text-xs text-[var(--muted-foreground)] mb-3">登録した機材は現場入力の機械選択リストおよびアワーメーター点検管理・10a原価計算へ自動連動します。</p>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+          <div class="col-span-2">
+            <label class="block font-bold mb-1">機材・農機具名称</label>
+            <input type="text" id="newMachName" placeholder="例: クボタ コンバイン ER470" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">分類</label>
+            <select id="newMachCat" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)] font-semibold">
+              <option value="トラクター">トラクター</option>
+              <option value="コンバイン">コンバイン</option>
+              <option value="田植機">田植機</option>
+              <option value="乗用モア・草刈機">乗用モア・草刈機</option>
+              <option value="ドローン・防除機">ドローン・防除機</option>
+              <option value="乾燥機・その他">乾燥機・その他</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-bold mb-1">現在アワー(h)</label>
+            <input type="number" step="0.5" id="newMachHour" value="50" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">点検間隔(hごと)</label>
+            <input type="number" step="10" id="newMachInterval" value="50" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">時間単価(円/h)</label>
+            <input type="number" step="100" id="newMachCost" value="2500" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+        </div>
+        <button onclick="addNewMachineMaster('settings')" class="mt-4 w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition">
+          ＋ 機材マスタへ追加保存
+        </button>
+      </div>
       <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
         <div class="flex items-center justify-between mb-2">
           <h2 class="text-base font-bold text-[var(--foreground)]">☁️ Googleスプレッドシート（GAS）自動按分・帳票連携</h2>
