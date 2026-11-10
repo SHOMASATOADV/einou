@@ -34,12 +34,15 @@
       </div>
     </div>
 
-    <!-- オフライン / オンライン切替 & GAS同期ボタン -->
+    <!-- オフライン / オンライン切替 & GAS同期 & 使い方説明書ボタン -->
     <div class="flex items-center gap-2 flex-wrap self-start lg:self-auto">
       <div id="syncBadge" class="flex items-center gap-2 px-3 py-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-600 text-xs font-semibold">
         <span id="syncDot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
         <span id="syncText">端末保存済・オンライン</span>
       </div>
+      <button onclick="toggleUserManualModal(true)" class="px-3 py-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 text-xs font-bold transition shadow-sm">
+        📖 使い方・説明書
+      </button>
       <button onclick="toggleOfflineMode()" class="px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-90 text-xs font-semibold transition">
         📡 圏外テスト切替
       </button>
@@ -1389,6 +1392,138 @@
     </div>
 
   </section>
+
+  <!-- ========================================================================= -->
+  <!-- 📖 アプリ内 取扱説明書・使い方ガイドモーダル                               -->
+  <!-- ========================================================================= -->
+  <div id="userManualModal" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" onclick="if(event.target===this) toggleUserManualModal(false)">
+    <div class="bg-[var(--card)] border-2 border-[var(--border)] rounded-3xl max-w-4xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
+      <!-- モーダルヘッダー -->
+      <div class="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] bg-emerald-600 text-white shrink-0">
+        <div class="flex items-center gap-2.5">
+          <span class="text-xl">📖</span>
+          <div>
+            <h2 class="text-base md:text-lg font-bold">らくらく営農日誌 Next — 取扱説明書・使い方ガイド</h2>
+            <p class="text-xs text-emerald-100">現場での日誌入力・Googleマップ圃場作図・機材資材管理・JA帳票出力の手順</p>
+          </div>
+        </div>
+        <button type="button" onclick="toggleUserManualModal(false)" class="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold transition">
+          ✕ 閉じる
+        </button>
+      </div>
+
+      <!-- クイック目次ジャンプバー -->
+      <div class="px-5 py-2.5 bg-[var(--secondary)] border-b border-[var(--border)] flex items-center gap-1.5 flex-wrap text-xs shrink-0">
+        <span class="font-bold text-[var(--muted-foreground)] mr-1">目次:</span>
+        <a href="#manual-sec-1" class="px-2.5 py-1 rounded-lg bg-[var(--card)] border border-[var(--border)] font-semibold hover:border-emerald-500">1. 日誌・作業入力</a>
+        <a href="#manual-sec-2" class="px-2.5 py-1 rounded-lg bg-[var(--card)] border border-[var(--border)] font-semibold hover:border-emerald-500">2. Googleマップ選択＆面積測量</a>
+        <a href="#manual-sec-3" class="px-2.5 py-1 rounded-lg bg-[var(--card)] border border-[var(--border)] font-semibold hover:border-emerald-500">3. GIS進捗・刈取予測・被害メモ</a>
+        <a href="#manual-sec-4" class="px-2.5 py-1 rounded-lg bg-[var(--card)] border border-[var(--border)] font-semibold hover:border-emerald-500">4. 機械・肥料・農薬の追加</a>
+        <a href="#manual-sec-5" class="px-2.5 py-1 rounded-lg bg-[var(--card)] border border-[var(--border)] font-semibold hover:border-emerald-500">5. JA帳票・採算試算・バックアップ</a>
+      </div>
+
+      <!-- モーダル本文 -->
+      <div class="p-5 md:p-6 overflow-y-auto space-y-6 text-xs md:text-sm leading-relaxed">
+        <!-- 基本のしくみ -->
+        <div class="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
+          <div class="font-bold text-emerald-700 dark:text-emerald-300 mb-1">💡 基本の仕組み（電波圏外でも消えない自動保存）</div>
+          <p class="text-xs text-[var(--foreground)]">
+            入力した作業日誌・田んぼ・農機具・資材在庫のデータは、すべてお使いのスマホ・パソコン内（ブラウザの <code class="px-1 py-0.5 rounded bg-[var(--card)]">localStorage</code>）に<strong>自動で即座に保存</strong>されます。山間部の電波圏外で入力しても消えません。詳細な説明書ファイルは <code class="px-1 py-0.5 rounded bg-[var(--card)]">docs/user_manual.md</code> にも収録されています。
+          </p>
+        </div>
+
+        <!-- 1. 現場一括入力・日誌 -->
+        <div id="manual-sec-1" class="space-y-2">
+          <h3 class="text-sm md:text-base font-bold text-emerald-600 border-b border-[var(--border)] pb-1.5">
+            📱 1. 毎日の作業日報・営農日誌（天候・メモ）のつけ方【タブ1】
+          </h3>
+          <ol class="list-decimal list-inside space-y-1.5 text-xs md:text-sm">
+            <li><strong>日付と作業者を確認</strong>：左上の日付（「📅 今日」ボタンで本日にセット）と作業者名を確認します。「⚡ ワンタップ履歴呼び出し」で前回と同じ設定を1タップで呼び出すこともできます。</li>
+            <li><strong>作業した田んぼ（複数可）を選択</strong>：田んぼタイルをタップ（または「⛰️ 上山田団地を一括選択」「📍 実GPS現在地周辺を選択」「🗺️ Googleマップで選択」）して選びます。複数選んだ場合も<strong>面積比で自動按分</strong>されます。</li>
+            <li><strong>作業分類を選択</strong>：
+              <ul class="list-disc list-inside ml-4 mt-1 space-y-1 text-xs text-[var(--muted-foreground)]">
+                <li><strong>🌱 施肥</strong>：肥料と総袋数を入力 → 10aあたりチッソ(N)・リン酸(P)・カリ(K)成分量を自動計算</li>
+                <li><strong>🚁 防除</strong>：第1・第2農薬（混用可）を選択 → <strong>有効成分ごとの使用回数上限・収穫前日数(PHI)</strong>を自動チェック</li>
+                <li><strong>🌿 草刈り / 🚜 耕起 / 🌾 収穫</strong>：収穫は総重量入力で10aあたり反収（kg・俵）を自動算出</li>
+                <li><strong>📔 観察・日誌のみ</strong>：資材を使わない日々の見回りや生育ステージ観察のみを記録</li>
+              </ul>
+            </li>
+            <li><strong>天候・気温・観察メモを入力</strong>：天候（☀️晴・⛅曇・🌧️雨など）や気温、自由メモ・引き継ぎ事項を入力します（クイックタグで1タップ追記可能）。</li>
+            <li><strong>「✅ この内容で一括登録」を押す</strong>：右側のタイムラインに即座に追加され、在庫の引き落としや機械アワーの加算も自動で行われます。間違えた場合はタイムラインの<strong>「✏️ 編集」</strong>や<strong>「🗑️ 取消」</strong>からいつでも直せます。</li>
+          </ol>
+        </div>
+
+        <!-- 2. Googleマップ連携・面積自動測量 -->
+        <div id="manual-sec-2" class="space-y-2">
+          <h3 class="text-sm md:text-base font-bold text-sky-600 border-b border-[var(--border)] pb-1.5">
+            🗺️ 2. Googleマップ（航空写真）での圃場選択・田んぼを囲んで新規作図＆面積自動測量
+          </h3>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            <div class="p-3.5 rounded-2xl bg-[var(--background)] border border-[var(--border)]">
+              <div class="font-bold text-sky-600 mb-1">🅰️ 登録済みの田んぼを航空写真で選ぶ</div>
+              <ol class="list-decimal list-inside space-y-1">
+                <li>【タブ1】STEP 1の<strong>「🗺️ Googleマップで選択」</strong>を押します。</li>
+                <li>航空写真上の<strong>田んぼの枠（ポリゴン）またはピンをタップ</strong>すると選択（緑色✓）／解除が切り替わります。</li>
+                <li><strong>「🚗 選択圃場をGoogleマップ経路案内」</strong>で現地までのナビも開けます。</li>
+              </ol>
+            </div>
+            <div class="p-3.5 rounded-2xl bg-[var(--background)] border border-amber-500/40">
+              <div class="font-bold text-amber-600 mb-1">🅱️ 地図上で田んぼを囲んで面積を自動測量＆新規登録</div>
+              <ol class="list-decimal list-inside space-y-1">
+                <li>マップ右上の<strong>「✏️ 地図上で田んぼを囲んで新規追加」</strong>を押します。</li>
+                <li>航空写真上で<strong>田んぼの四隅（3点以上）を順番にクリック</strong>します。</li>
+                <li>赤い枠で囲まれ、<strong>面積（約 ○○ a / ○○○ ㎡）が自動測量</strong>されます。</li>
+                <li><strong>「✅ この範囲で圃場を登録」</strong>を押し、圃場名を入れて保存すれば完了です！</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. GIS進捗・積算温度・被害アラート -->
+        <div id="manual-sec-3" class="space-y-2">
+          <h3 class="text-sm md:text-base font-bold text-emerald-600 border-b border-[var(--border)] pb-1.5">
+            🌡️ 3. GIS進捗マップ・出穂後積算温度（1,000℃刈取予測）・見回りアラート【タブ2】
+          </h3>
+          <ul class="list-disc list-inside space-y-1.5 text-xs md:text-sm">
+            <li><strong>作業別の色分け進捗確認</strong>：基肥・防除・草刈り・収穫の進捗状況を「📐 進捗ボード」または「🛰️ Googleマップ(航空写真)」上で色分け表示します。</li>
+            <li><strong>水稲「出穂後積算温度（1,000℃）」予測</strong>：右側の圃場カルテで「🌾 出穂日」と「🌡️ 日平均気温」を入力すると、積算温度の進捗率と<strong>刈取適期予測日（あと何日か）</strong>を自動計算します。</li>
+            <li><strong>現地見回り＆被害アラート</strong>：カルテ下部の「⚠️ 被害・見回りメモ」から獣害・水漏れ・雑草などのアラートをピン留めすると、マップ上に赤い <code class="px-1 rounded bg-red-500/20 text-red-600 font-bold">⚠️</code> バッジが表示されます。</li>
+          </ul>
+        </div>
+
+        <!-- 4. 機械・肥料・農薬の追加と在庫・点検管理 -->
+        <div id="manual-sec-4" class="space-y-2">
+          <h3 class="text-sm md:text-base font-bold text-emerald-600 border-b border-[var(--border)] pb-1.5">
+            🚜 4. 機械（農機具）・肥料・農薬の新規追加と在庫・点検管理【タブ3・タブ5】
+          </h3>
+          <ul class="list-disc list-inside space-y-1.5 text-xs md:text-sm">
+            <li><strong>農機具の追加・点検リセット</strong>：【タブ3】の<strong>「＋ 新規機材を追加」</strong>からトラクター・コンバイン・ドローン等を登録できます。日誌入力で稼働時間が自動加算され、オイル交換時期になると警告が出ます。「🔧 オイル交換・点検済として記録」でリセットできます。</li>
+            <li><strong>肥料・農薬の追加・入庫補充</strong>：【タブ3】の<strong>「＋ 肥料を追加」「＋ 農薬を追加」</strong>から新しい銘柄を登録できます。追加購入した際は各カードの「＋10袋 入庫補充」等で在庫を増やせます。</li>
+          </ul>
+        </div>
+
+        <!-- 5. JA提出A4帳票・10a採算試算・データ移行・バックアップ -->
+        <div id="manual-sec-5" class="space-y-2">
+          <h3 class="text-sm md:text-base font-bold text-emerald-600 border-b border-[var(--border)] pb-1.5">
+            🖨️ 5. JA提出用A4帳票・10aあたり採算ランク試算・バックアップ復元【タブ4・タブ5】
+          </h3>
+          <ul class="list-disc list-inside space-y-1.5 text-xs md:text-sm">
+            <li><strong>JA提出「生産履歴記帳簿」＆A4印刷</strong>：【タブ4】で品種や団地を絞り込み、<strong>「🖨️ A4横サイズで印刷 / PDF保存」</strong>または<strong>「📥 帳票CSV出力」</strong>でそのままJAへ提出できる帳票を出力できます。</li>
+            <li><strong>圃場別「10aあたり原価・粗利・採算ランク（S〜C）」試算</strong>：【タブ4】の「💴 圃場別10a採算・粗利試算表」で、各田んぼの肥料費・農薬費・労務費・機械費と反収から粗利益を自動試算します（想定米価・時給シミュレーション対応）。</li>
+            <li><strong>他社データ移行・GAS連携・JSONバックアップ</strong>：【タブ5】からアグリノート・KSAS・eMAFF筆ポリゴンの取り込み、Googleスプレッドシート（GAS）への一括送信、<strong>「📥 JSONバックアップ保存」「📤 JSONバックアップから復元」</strong>が行えます。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- モーダルフッター -->
+      <div class="px-5 py-3 border-t border-[var(--border)] bg-[var(--secondary)] flex items-center justify-between shrink-0">
+        <span class="text-xs text-[var(--muted-foreground)]">詳細ファイル: <code class="px-1.5 py-0.5 rounded bg-[var(--card)]">docs/user_manual.md</code></span>
+        <button type="button" onclick="toggleUserManualModal(false)" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition">
+          閉じる
+        </button>
+      </div>
+    </div>
+  </div>
 
   <script src="./js/data.js"></script>
   <script src="./js/app.js"></script>

@@ -2678,6 +2678,13 @@ function resetToDefaultData() {
   showToast('🔄 初期サンプルデータにリセットしました', 'すべてのマスタ・履歴が初期状態に戻りました。');
 }
 
+function toggleUserManualModal(forceOpen) {
+  const modal = document.getElementById('userManualModal');
+  if (!modal) return;
+  const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : modal.classList.contains('hidden');
+  modal.classList.toggle('hidden', !shouldOpen);
+}
+
 function showToast(title, desc) {
   const box = document.getElementById('toastBox');
   document.getElementById('toastTitle').textContent = title;
