@@ -142,6 +142,27 @@ function setupAllSheets() {
  *    を一括実行するコア関数（AppSheetのBotまたはトリガーから呼び出し可能）
  */
 function processPendingLogs() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  let processedCount = 0;
+  try {
+    processedCount = processPendingLogs_();
+  } finally {
+    lock.releaseLock();
+  }
+  refreshA4ReportSheet();
+  SpreadsheetApp.getActiveSpreadsheet().toast(`${processedCount} 件の作業日誌を各圃場へ面積按分し、A4帳票を更新しました。`, '✅ 按分処理完了', 4);
+}
+
+/**
+ * processPendingLogs の本体（ロック取得済みの呼び出し元から使用）
+ * 【改善点】
+ *  - ループ内ではメモリ上の配列のみを更新し、最後に列単位で setValues() 一括書き込み
+ *    → 同一バッチ内で同じ圃場・機械・資材が複数回登場しても加算値が上書き消失しない
+ *    → setValue()/appendRow() の多重呼び出しを排除し、GAS 6分制限に対して大幅に高速化
+ * @return {number} 処理した日誌件数
+ */
+function processPendingLogs_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const logSheet = ss.getSheetByName(SHEET_NAMES.WORK_LOGS);
   const fieldsSheet = ss.getSheetByName(SHEET_NAMES.FIELDS);
@@ -154,20 +175,24 @@ function processPendingLogs() {
   const materials = matSheet.getDataRange().getValues();
   const machines = machSheet.getDataRange().getValues();
 
-  // マスタのルックアップ辞書作成
+  // マスタのルックアップ辞書（値は getValues() 配列の行への参照 → 直接書き換えると累積される）
   const fieldMap = {};
   for (let i = 1; i < fields.length; i++) {
-    fieldMap[fields[i][0]] = { rowIdx: i + 1, data: fields[i] };
+    const key = String(fields[i][0] || '').trim();
+    if (key) fieldMap[key] = fields[i];
   }
   const matMap = {};
   for (let i = 1; i < materials.length; i++) {
-    matMap[materials[i][0]] = { rowIdx: i + 1, data: materials[i] };
+    const key = String(materials[i][0] || '').trim();
+    if (key) matMap[key] = materials[i];
   }
   const machMap = {};
   for (let i = 1; i < machines.length; i++) {
-    machMap[machines[i][0]] = { rowIdx: i + 1, data: machines[i] };
+    const key = String(machines[i][0] || '').trim();
+    if (key) machMap[key] = machines[i];
   }
 
+  const newLfRows = [];
   let processedCount = 0;
 
   for (let r = 1; r < logs.length; r++) {
@@ -177,8 +202,8 @@ function processPendingLogs() {
     const workCat = row[2];
     const selectedIdsRaw = String(row[4] || '');
     const durationHr = Number(row[6] || 0);
-    const machineId = String(row[7] || '');
-    const materialId = String(row[8] || '');
+    const machineId = String(row[7] || '').trim();
+    const materialId = String(row[8] || '').trim();
     const inputQty = Number(row[9] || 0);
     const dilutionRate = Number(row[11] || 0);
     const waterVolL = Number(row[12] || 0);
@@ -190,7 +215,7 @@ function processPendingLogs() {
     const fieldIds = selectedIdsRaw.split(',').map(s => s.trim()).filter(Boolean);
     let totalAreaA = 0;
     fieldIds.forEach(fid => {
-      if (fieldMap[fid]) totalAreaA += Number(fieldMap[fid].data[5] || 0);
+      if (fieldMap[fid]) totalAreaA += Number(fieldMap[fid][5] || 0);
     });
     if (totalAreaA <= 0) continue;
 
@@ -201,8 +226,8 @@ function processPendingLogs() {
     let nTotalKg = 0, pTotalKg = 0, kTotalKg = 0;
     let totalChemMl = 0;
 
-    if (materialId && matMap[materialId]) {
-      const m = matMap[materialId].data;
+    const m = materialId ? matMap[materialId] : null;
+    if (m) {
       const mType = m[1];
       matName = m[2];
       const unitSize = Number(m[5] || 0);
@@ -223,79 +248,104 @@ function processPendingLogs() {
         totalChemMl = (waterVolL * 1000.0) / dilutionRate;
       }
 
-      // 資材在庫の引き落とし
-      const currentStock = Number(m[13] || 0);
-      const newStock = Math.max(0, currentStock - inputQty);
-      matSheet.getRange(matMap[materialId].rowIdx, 14).setValue(newStock);
+      // 資材在庫の引き落とし（メモリ上で累積）
+      m[13] = Math.max(0, Number(m[13] || 0) - inputQty);
     }
 
-    // 機械アワーメーターの自動加算
-    if (machineId && machMap[machineId] && durationHr > 0) {
-      const mc = machMap[machineId].data;
-      const newHour = Number(mc[4] || 0) + durationHr;
+    // 機械アワーメーターの自動加算（メモリ上で累積）
+    const mc = machineId ? machMap[machineId] : null;
+    if (mc && durationHr > 0) {
+      const newHour = Math.round((Number(mc[4] || 0) + durationHr) * 10) / 10;
       const nextMaint = Number(mc[5] || 0);
-      machSheet.getRange(machMap[machineId].rowIdx, 5).setValue(newHour);
-      machSheet.getRange(machMap[machineId].rowIdx, 8).setValue(newHour >= nextMaint - 10 ? '点検近し' : '正常');
+      mc[4] = newHour;
+      mc[7] = newHour >= nextMaint - 10 ? '点検近し' : '正常';
     }
 
-    // 親行（T_WORK_LOGS）の自動計算列を更新
-    logSheet.getRange(r + 1, 6).setValue(totalAreaA);
-    logSheet.getRange(r + 1, 11).setValue(totalWeightKg);
-    logSheet.getRange(r + 1, 14).setValue(Number(nPer10a.toFixed(2)));
-    logSheet.getRange(r + 1, 15).setValue(Number(pPer10a.toFixed(2)));
-    logSheet.getRange(r + 1, 16).setValue(Number(kPer10a.toFixed(2)));
-    logSheet.getRange(r + 1, 18).setValue('DONE');
+    // 親行（T_WORK_LOGS）の自動計算列を更新（メモリ上）
+    row[5] = totalAreaA;
+    row[10] = totalWeightKg;
+    row[13] = Number(nPer10a.toFixed(2));
+    row[14] = Number(pPer10a.toFixed(2));
+    row[15] = Number(kPer10a.toFixed(2));
+    row[17] = 'DONE';
 
-    // 各圃場への面積比率按分レコード（T_LOG_FIELDS）を生成＆圃場マスタ更新
+    // 各圃場への面積比率按分レコード生成＆圃場マスタ更新（メモリ上で累積）
     fieldIds.forEach((fid, idx) => {
-      const fObj = fieldMap[fid];
-      if (!fObj) return;
-      const fArea = Number(fObj.data[5] || 0);
+      const f = fieldMap[fid];
+      if (!f) return;
+      const fArea = Number(f[5] || 0);
       const ratio = fArea / totalAreaA;
-      const allocHr = Number((durationHr * ratio).toFixed(2));
-      const allocFertKg = Number((totalWeightKg * ratio).toFixed(2));
-      const allocNKg = Number((nTotalKg * ratio).toFixed(2));
-      const allocPKg = Number((pTotalKg * ratio).toFixed(2));
-      const allocKKg = Number((kTotalKg * ratio).toFixed(2));
-      const allocWaterL = Number((waterVolL * ratio).toFixed(2));
-      const allocChemMl = Math.round(totalChemMl * ratio);
 
-      lfSheet.appendRow([
+      newLfRows.push([
         `${workLogId}-F${idx + 1}`,
         workLogId,
         workDate,
         workCat,
         fid,
-        fObj.data[2],
+        f[2],
         fArea,
         Number(ratio.toFixed(4)),
-        allocHr,
+        Number((durationHr * ratio).toFixed(2)),
         matName,
-        allocFertKg,
-        allocNKg,
-        allocPKg,
-        allocKKg,
-        allocWaterL,
-        allocChemMl
+        Number((totalWeightKg * ratio).toFixed(2)),
+        Number((nTotalKg * ratio).toFixed(2)),
+        Number((pTotalKg * ratio).toFixed(2)),
+        Number((kTotalKg * ratio).toFixed(2)),
+        Number((waterVolL * ratio).toFixed(2)),
+        Math.round(totalChemMl * ratio)
       ]);
 
-      // 圃場マスタのステータス＆累計NPK更新
-      fieldsSheet.getRange(fObj.rowIdx, 9).setValue(`${workCat}済`);
+      f[8] = `${workCat}済`;
       if (nPer10a > 0 || pPer10a > 0 || kPer10a > 0) {
-        const curN = Number(fObj.data[11] || 0) + nPer10a;
-        const curP = Number(fObj.data[12] || 0) + pPer10a;
-        const curK = Number(fObj.data[13] || 0) + kPer10a;
-        fieldsSheet.getRange(fObj.rowIdx, 12).setValue(Number(curN.toFixed(2)));
-        fieldsSheet.getRange(fObj.rowIdx, 13).setValue(Number(curP.toFixed(2)));
-        fieldsSheet.getRange(fObj.rowIdx, 14).setValue(Number(curK.toFixed(2)));
+        f[11] = Number((Number(f[11] || 0) + nPer10a).toFixed(2));
+        f[12] = Number((Number(f[12] || 0) + pPer10a).toFixed(2));
+        f[13] = Number((Number(f[13] || 0) + kPer10a).toFixed(2));
       }
     });
 
     processedCount++;
   }
 
-  refreshA4ReportSheet();
-  SpreadsheetApp.getActiveSpreadsheet().toast(`${processedCount} 件の作業日誌を各圃場へ面積按分し、A4帳票を更新しました。`, '✅ 按分処理完了', 4);
+  if (processedCount === 0) return 0;
+
+  // ---- ここから一括書き込み（他の列を上書きしないよう、変更した列だけを書き戻す） ----
+  writeColumns_(logSheet, logs, [6, 11, 14, 15, 16, 18]);
+  writeColumns_(fieldsSheet, fields, [9, 12, 13, 14]);
+  writeColumns_(matSheet, materials, [14]);
+  writeColumns_(machSheet, machines, [5, 8]);
+
+  if (newLfRows.length > 0) {
+    lfSheet.getRange(lfSheet.getLastRow() + 1, 1, newLfRows.length, newLfRows[0].length).setValues(newLfRows);
+  }
+  SpreadsheetApp.flush();
+  return processedCount;
+}
+
+/**
+ * getValues() で取得した2次元配列のうち、指定列（1始まり）のデータ行だけをまとめて書き戻す
+ * 連続する列は1回の setValues() にまとめる
+ */
+function writeColumns_(sheet, values, colNumbers) {
+  if (!values || values.length < 2) return;
+  const dataRows = values.slice(1);
+  const cols = colNumbers.slice().sort((a, b) => a - b);
+  let start = 0;
+  while (start < cols.length) {
+    let end = start;
+    while (end + 1 < cols.length && cols[end + 1] === cols[end] + 1) end++;
+    const firstCol = cols[start];
+    const width = cols[end] - firstCol + 1;
+    const block = dataRows.map(row => {
+      const out = [];
+      for (let c = 0; c < width; c++) {
+        const v = row[firstCol - 1 + c];
+        out.push(v === undefined ? '' : v);
+      }
+      return out;
+    });
+    sheet.getRange(2, firstCol, block.length, width).setValues(block);
+    start = end + 1;
+  }
 }
 
 /**
@@ -583,7 +633,8 @@ function importExternalAppData() {
     const lngCol = findCol(['経度', 'lng', 'lon']);
 
     let importedFields = 0;
-    const currentFieldCount = fieldsSheet.getLastRow();
+    // 既存IDの最大番号から採番（行削除があってもIDが重複しない）
+    const usedFieldIds = fieldsSheet.getDataRange().getValues().slice(1).map(r => String(r[0]));
 
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
@@ -601,7 +652,8 @@ function importExternalAppData() {
         areaA = rawVal >= 500 ? Math.round(rawVal / 100) : rawVal;
       }
 
-      const newFieldId = `F${String(currentFieldCount + importedFields).padStart(2, '0')}`;
+      const newFieldId = generateNextId_('F', usedFieldIds);
+      usedFieldIds.push(newFieldId);
       fieldsSheet.appendRow([
         newFieldId,
         idCol !== -1 ? r[idCol] : newFieldId,
@@ -626,30 +678,56 @@ function importExternalAppData() {
  * 6. スマホPWAアプリ（オフライン対応Webアプリ）からのPOST同期受信エンドポイント
  */
 function doPost(e) {
+  const lock = LockService.getScriptLock();
   try {
     const payload = JSON.parse(e.postData.contents);
+    // 同時送信（複数スマホ）による二重登録を防ぐため排他ロック
+    lock.waitLock(30000);
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const logSheet = ss.getSheetByName(SHEET_NAMES.WORK_LOGS);
     const fieldsSheet = ss.getSheetByName(SHEET_NAMES.FIELDS);
 
-    // 新規移行された圃場があれば M_FIELDS にも追加
+    // 新規移行された圃場があれば M_FIELDS にも追加（既存IDはスキップ）
     if (payload.fields && Array.isArray(payload.fields) && fieldsSheet) {
-      const existingIds = fieldsSheet.getDataRange().getValues().slice(1).map(r => r[0]);
+      const existingIdSet = {};
+      fieldsSheet.getDataRange().getValues().slice(1).forEach(r => { existingIdSet[String(r[0]).trim()] = true; });
+      const newFieldRows = [];
       payload.fields.forEach(f => {
-        if (existingIds.indexOf(f.id) === -1) {
-          fieldsSheet.appendRow([
-            f.id, f.id, f.name, f.lot || '-', f.group || '移行団地', f.area || 20,
-            f.crop || 'コシヒカリ(BL)', f.harvest || '2026-09-20', f.stage || '未着手',
-            f.lat || 37.9165, f.lng || 139.0370, f.nPer10a || 0, f.pPer10a || 0, f.kPer10a || 0
-          ]);
-        }
+        const fid = String(f.id || '').trim();
+        if (!fid || existingIdSet[fid]) return;
+        existingIdSet[fid] = true;
+        newFieldRows.push([
+          fid, fid, f.name, f.lot || '-', f.group || '移行団地', f.area || 20,
+          f.crop || 'コシヒカリ(BL)', f.harvest || '2026-09-20', f.stage || '未着手',
+          f.lat || 37.9165, f.lng || 139.0370, f.nPer10a || 0, f.pPer10a || 0, f.kPer10a || 0
+        ]);
       });
+      if (newFieldRows.length > 0) {
+        fieldsSheet.getRange(fieldsSheet.getLastRow() + 1, 1, newFieldRows.length, newFieldRows[0].length).setValues(newFieldRows);
+      }
     }
 
+    // 作業日誌の受信（work_log_id による重複排除 → 何度再送しても二重計上されない＝べき等）
+    const insertedIds = [];
+    const skippedIds = [];
     if (payload.logs && Array.isArray(payload.logs)) {
+      const existingLogIdSet = {};
+      logSheet.getDataRange().getValues().slice(1).forEach(r => { existingLogIdSet[String(r[0]).trim()] = true; });
+
+      const newLogRows = [];
       payload.logs.forEach(item => {
-        logSheet.appendRow([
-          item.id || ('WL-' + new Date().getTime()),
+        if (!item) return;
+        const logId = String(item.id || '').trim();
+        if (!logId) return; // IDなしは重複判定できないため受け付けない
+        if (existingLogIdSet[logId]) {
+          skippedIds.push(logId);
+          return;
+        }
+        existingLogIdSet[logId] = true;
+        insertedIds.push(logId);
+        newLogRows.push([
+          logId,
           item.date,
           item.cat,
           item.worker || '佐藤 健一',
@@ -666,21 +744,49 @@ function doPost(e) {
           item.p10a || 0,
           item.k10a || 0,
           item.materialSummary || '',
-          '' // 未按分フラグ → 直後の processPendingLogs() で自動按分展開
+          '' // 未按分フラグ → 直後の processPendingLogs_() で自動按分展開
         ]);
       });
-      processPendingLogs();
-    }
 
-    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', syncedCount: (payload.logs || []).length }))
-      .setMimeType(ContentService.MimeType.JSON);
+      if (newLogRows.length > 0) {
+        logSheet.getRange(logSheet.getLastRow() + 1, 1, newLogRows.length, newLogRows[0].length).setValues(newLogRows);
+        processPendingLogs_();
+      }
+    }
+    lock.releaseLock();
+
+    if (insertedIds.length > 0) refreshA4ReportSheet();
+
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'ok',
+      syncedCount: insertedIds.length,
+      skippedCount: skippedIds.length,
+      // PWA側はこのIDだけを「同期済」にする（新規登録＋既に登録済み）
+      acceptedIds: insertedIds.concat(skippedIds)
+    })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
+    try { lock.releaseLock(); } catch (e2) {}
     return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
 
 // ヘルパー関数
+
+/**
+ * 「接頭辞＋2桁以上の連番」形式のIDを採番する（PWA側 generateNextId と同一仕様）
+ * 例: ['F01','F02','F07'] → 'F08' / 'F99' の次 → 'F100'
+ */
+function generateNextId_(prefix, existingIds) {
+  const re = new RegExp('^' + prefix + '(\\d+)$');
+  let maxNum = 0;
+  (existingIds || []).forEach(id => {
+    const m = String(id).match(re);
+    if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
+  });
+  return prefix + String(maxNum + 1).padStart(2, '0');
+}
+
 function getOrCreateSheet_(ss, name) {
   let sheet = ss.getSheetByName(name);
   if (!sheet) sheet = ss.insertSheet(name);

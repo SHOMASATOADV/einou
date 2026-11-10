@@ -8,8 +8,42 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="./manifest.json">
   <title>らくらく営農日誌 Next - 本格PWA版</title>
-  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
+    /* テーマカラー変数（外部ホスティング時も表示が崩れないよう明示定義） */
+    :root {
+      --background: #f8fafc;
+      --foreground: #0f172a;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --secondary: #f1f5f9;
+      --secondary-foreground: #1e293b;
+      --muted-foreground: #64748b;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --background: #0f172a;
+        --foreground: #f1f5f9;
+        --card: #1e293b;
+        --border: #334155;
+        --secondary: #334155;
+        --secondary-foreground: #e2e8f0;
+        --muted-foreground: #94a3b8;
+        color-scheme: dark;
+      }
+    }
+    @media print {
+      :root {
+        --background: #ffffff;
+        --foreground: #0f172a;
+        --card: #ffffff;
+        --border: #e2e8f0;
+        --secondary: #f1f5f9;
+        --secondary-foreground: #1e293b;
+        --muted-foreground: #64748b;
+      }
+    }
     .field-polygon {
       transition: all 0.2s ease;
       cursor: pointer;
@@ -344,6 +378,12 @@
         <div id="noMaterialPanel" class="hidden p-3 rounded-xl bg-[var(--secondary)] text-xs text-[var(--muted-foreground)]">
           💡 この作業種別では農薬・肥料の消費はありません（作業時間・圃場ステータス・機械稼働時間のみ自動記録されます）。
         </div>
+      </div>
+
+      <!-- 修正モード表示バー -->
+      <div id="editModeBanner" class="hidden mb-3 p-3 rounded-xl border border-amber-500/50 bg-amber-500/15 text-amber-700 text-xs font-bold flex items-center justify-between gap-2">
+        <span id="editModeText"></span>
+        <button onclick="cancelEditMode()" class="shrink-0 px-2.5 py-1 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[var(--foreground)] hover:opacity-80">キャンセル</button>
       </div>
 
       <!-- 登録ボタン -->
@@ -707,6 +747,7 @@
                 <th class="border border-slate-400 p-2 text-right">作業時間(h)</th>
                 <th class="border border-slate-400 p-2 text-left">使用機械</th>
                 <th class="border border-slate-400 p-2 text-left">使用資材・備考</th>
+                <th class="no-print border border-slate-400 p-2 text-center">操作</th>
               </tr>
             </thead>
             <tbody id="dailyReportBody"></tbody>
@@ -1045,6 +1086,186 @@
     let currentInspectedFieldId = 'F01';
 
     // =========================================================================
+    // 共通ユーティリティ
+    // =========================================================================
+    // innerHTML へ埋め込む文字列のHTMLエスケープ（他社CSV等の特殊文字によるDOM崩れ・XSS防止）
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    // 「接頭辞＋2桁以上の連番」ID採番（GAS側 generateNextId_ と同一仕様）
+    // 例: ['F01','F02','F07'] → 'F08' ／ 'F99' の次 → 'F100'
+    function generateNextId(prefix, existingIds) {
+      const re = new RegExp('^' + prefix + '(\\d+)$');
+      let maxNum = 0;
+      (existingIds || []).forEach(id => {
+        const m = String(id).match(re);
+        if (m) maxNum = Math.max(maxNum, parseInt(m[1], 10));
+      });
+      return prefix + String(maxNum + 1).padStart(2, '0');
+    }
+
+    // ダブルクォート対応 CSV/TSV パーサー（"..." 内の区切り文字・改行・"" エスケープに対応）
+    function parseDelimitedText(text, delimiter) {
+      const rows = [];
+      let row = [];
+      let cur = '';
+      let inQuotes = false;
+      const src = String(text).replace(/^\uFEFF/, '');
+      for (let i = 0; i < src.length; i++) {
+        const ch = src[i];
+        if (inQuotes) {
+          if (ch === '"') {
+            if (src[i + 1] === '"') { cur += '"'; i++; }
+            else inQuotes = false;
+          } else {
+            cur += ch;
+          }
+        } else if (ch === '"') {
+          inQuotes = true;
+        } else if (ch === delimiter) {
+          row.push(cur.trim());
+          cur = '';
+        } else if (ch === '\n' || ch === '\r') {
+          if (ch === '\r' && src[i + 1] === '\n') i++;
+          row.push(cur.trim());
+          rows.push(row);
+          row = [];
+          cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+      if (cur.length > 0 || row.length > 0) {
+        row.push(cur.trim());
+        rows.push(row);
+      }
+      return rows.filter(r => r.some(c => c !== ''));
+    }
+
+    // CSV出力用のセルエスケープ
+    function toCsvCell(value) {
+      const s = String(value ?? '');
+      return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }
+
+    // =========================================================================
+    // 圃場の集計値（累計NPK・農薬使用回数・進捗・収量）を作業履歴から再計算
+    //   field.baseline = アプリ外で記録済みの初期値（作業履歴に含まれない分）
+    //   集計値 = baseline + workLogs からの寄与
+    //   → 履歴の追加・取消・修正・他社移行のどれでも累計値の不整合が起きない
+    // =========================================================================
+    function makeEmptyBaseline() {
+      return { nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: {}, doneCats: [], stage: '未着手', harvestKg: 0, yieldTawara10a: 0, grade: '' };
+    }
+
+    function logAreaRatio_(log, field) {
+      const total = Number(log.totalArea) || 0;
+      return total > 0 ? (field.area / total) : 0;
+    }
+
+    function dateKey_(d) {
+      return String(d || '').replace(/-/g, '/');
+    }
+
+    // 旧バージョンのデータ（baselineなし）から baseline を逆算して付与
+    function ensureFieldBaselines() {
+      fieldsData.forEach(f => {
+        if (f.baseline) return;
+        const logs = workLogs.filter(l => (l.fieldIds || []).includes(f.id));
+        const b = makeEmptyBaseline();
+        let n = 0, p = 0, k = 0, harvKg = 0;
+        const pestCnt = {};
+        logs.forEach(l => {
+          if (l.type === 'fertilizer') {
+            n += Number(l.n10a) || 0;
+            p += Number(l.p10a) || 0;
+            k += Number(l.k10a) || 0;
+          } else if (l.type === 'pesticide' && l.materialId) {
+            pestCnt[l.materialId] = (pestCnt[l.materialId] || 0) + 1;
+          } else if (l.type === 'harvest') {
+            harvKg += Math.round((Number(l.totalKg) || 0) * logAreaRatio_(l, f));
+          }
+        });
+        b.nPer10a = Math.max(0, Math.round(((f.nPer10a || 0) - n) * 100) / 100);
+        b.pPer10a = Math.max(0, Math.round(((f.pPer10a || 0) - p) * 100) / 100);
+        b.kPer10a = Math.max(0, Math.round(((f.kPer10a || 0) - k) * 100) / 100);
+        Object.entries(f.pestCount || {}).forEach(([pid, cnt]) => {
+          b.pestCount[pid] = Math.max(0, (cnt || 0) - (pestCnt[pid] || 0));
+        });
+        const logCats = new Set(logs.map(l => l.cat));
+        b.doneCats = (f.doneCats || []).filter(c => !logCats.has(c));
+        b.stage = logs.length > 0 ? (b.doneCats.length > 0 ? `${b.doneCats[b.doneCats.length - 1]}済` : '未着手') : (f.stage || '未着手');
+        b.harvestKg = Math.max(0, (f.harvestKg || 0) - harvKg);
+        b.yieldTawara10a = harvKg > 0 ? 0 : (f.yieldTawara10a || 0);
+        b.grade = harvKg > 0 ? '' : (f.grade || '');
+        f.baseline = b;
+      });
+    }
+
+    function recalculateFieldStats() {
+      fieldsData.forEach(f => {
+        const b = f.baseline || makeEmptyBaseline();
+        let n = b.nPer10a, p = b.pPer10a, k = b.kPer10a;
+        const pestCount = { ...b.pestCount };
+        const doneCats = [...b.doneCats];
+        let stage = b.stage;
+        let harvestKg = b.harvestKg;
+        let yieldTawara10a = b.yieldTawara10a;
+        let grade = b.grade;
+
+        // 日付の古い順に適用（同日は登録順）→ 最後の作業がステージになる
+        const logs = workLogs
+          .map((l, idx) => ({ l, idx }))
+          .filter(x => (x.l.fieldIds || []).includes(f.id))
+          .sort((a, b2) => dateKey_(a.l.date).localeCompare(dateKey_(b2.l.date)) || (b2.idx - a.idx))
+          .map(x => x.l);
+
+        logs.forEach(l => {
+          if (l.type === 'fertilizer') {
+            n += Number(l.n10a) || 0;
+            p += Number(l.p10a) || 0;
+            k += Number(l.k10a) || 0;
+          } else if (l.type === 'pesticide' && l.materialId) {
+            pestCount[l.materialId] = (pestCount[l.materialId] || 0) + 1;
+          } else if (l.type === 'harvest') {
+            harvestKg += Math.round((Number(l.totalKg) || 0) * logAreaRatio_(l, f));
+            if (l.yieldTawara10a !== undefined) yieldTawara10a = Number(l.yieldTawara10a);
+            if (l.grade) grade = l.grade;
+          }
+          if (l.cat && !doneCats.includes(l.cat)) doneCats.push(l.cat);
+          if (l.cat) stage = `${l.cat}済`;
+        });
+
+        f.nPer10a = Math.round(n * 100) / 100;
+        f.pPer10a = Math.round(p * 100) / 100;
+        f.kPer10a = Math.round(k * 100) / 100;
+        f.pestCount = pestCount;
+        f.doneCats = doneCats;
+        f.stage = stage;
+        f.harvestKg = harvestKg;
+        f.yieldTawara10a = yieldTawara10a;
+        f.grade = grade;
+      });
+    }
+
+    function refreshAllViews() {
+      renderSelectOptions();
+      renderInputFieldGrid();
+      recalculatePreview();
+      renderGisHeatmap();
+      inspectField(currentInspectedFieldId);
+      renderResourcesTab();
+      renderReportsTab();
+      updateSyncBadge();
+    }
+
+    // =========================================================================
     // LocalStorage 永続化エンジン
     // =========================================================================
     function loadStateFromStorage() {
@@ -1086,6 +1307,8 @@
 
     function initApp() {
       loadStateFromStorage();
+      ensureFieldBaselines();
+      recalculateFieldStats();
       document.getElementById('gasWebhookUrl').value = gasWebhookUrl;
       renderSelectOptions();
       renderInputFieldGrid();
@@ -1103,21 +1326,21 @@
       const curM = mSel.value || 'M01';
       mSel.innerHTML = Object.values(machines).map(m => {
         const warn = (m.nextMaint - m.currentHour) <= 10 ? ' ⚠️点検近し' : '';
-        return `<option value="${m.id}">${m.name} (現在 ${m.currentHour.toFixed(1)}h${warn})</option>`;
+        return `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)} (現在 ${m.currentHour.toFixed(1)}h${warn})</option>`;
       }).join('') + `<option value="NONE">機械なし（手作業・見回り）</option>`;
       mSel.value = curM;
 
       const fSel = document.getElementById('fertilizerSelect');
       const curF = fSel.value || 'F01';
       fSel.innerHTML = Object.values(fertilizers).map(f =>
-        `<option value="${f.id}">${f.name} (${f.unitKg}kg/袋 | N${f.n}-P${f.p}-K${f.k} | 残${f.stock}袋)</option>`
+        `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)} (${f.unitKg}kg/袋 | N${f.n}-P${f.p}-K${f.k} | 残${f.stock}袋)</option>`
       ).join('');
       fSel.value = curF;
 
       const pSel = document.getElementById('pesticideSelect');
       const curP = pSel.value || 'P01';
       pSel.innerHTML = Object.values(pesticides).map(p =>
-        `<option value="${p.id}">${p.name} (${p.regNo} | 上限${p.maxUse}回・収穫前${p.phiDays}日)</option>`
+        `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.regNo)} | 上限${p.maxUse}回・収穫前${p.phiDays}日)</option>`
       ).join('');
       pSel.value = curP;
     }
@@ -1244,12 +1467,12 @@
         const checkIcon = isSel ? '☑️' : '⬜';
         const distBadge = f._distM !== undefined ? `<span class="text-xs text-sky-600 font-semibold ml-1">(${f._distM}m)</span>` : '';
         return `
-          <button onclick="toggleFieldSelection('${f.id}')" class="p-2.5 rounded-xl text-left transition ${activeCls}">
+          <button onclick="toggleFieldSelection('${escapeHtml(f.id)}')" class="p-2.5 rounded-xl text-left transition ${activeCls}">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-[var(--foreground)] truncate">${checkIcon} ${f.name}</span>
-              <span class="text-xs font-bold text-emerald-600 shrink-0">${f.area}a</span>
+              <span class="text-xs font-bold text-[var(--foreground)] truncate">${checkIcon} ${escapeHtml(f.name)}</span>
+              <span class="text-xs font-bold text-emerald-600 shrink-0">${escapeHtml(f.area)}a</span>
             </div>
-            <div class="text-xs text-[var(--muted-foreground)] mt-0.5 truncate">${f.lot} ${distBadge}</div>
+            <div class="text-xs text-[var(--muted-foreground)] mt-0.5 truncate">${escapeHtml(f.lot)} ${distBadge}</div>
           </button>
         `;
       }).join('');
@@ -1436,16 +1659,16 @@
       if (overUseFields.length > 0 || phiViolationFields.length > 0) {
         const msgs = [];
         if (overUseFields.length > 0) {
-          const names = overUseFields.map(f => f.name).join('・');
-          msgs.push(`⚠️ <strong>農薬使用回数超過アラート</strong>：${names} は既に ${pest.maxUse} 回使用済みのため、${pest.name}（上限${pest.maxUse}回）を追加散布できません！`);
+          const names = overUseFields.map(f => escapeHtml(f.name)).join('・');
+          msgs.push(`⚠️ <strong>農薬使用回数超過アラート</strong>：${names} は既に ${pest.maxUse} 回使用済みのため、${escapeHtml(pest.name)}（上限${pest.maxUse}回）を追加散布できません！`);
         }
         if (phiViolationFields.length > 0) {
           const phiDetails = phiViolationFields.map(v =>
             v.diffDays < 0
-              ? `${v.field.name}（収穫予定日 ${v.field.harvest} を ${Math.abs(v.diffDays)} 日経過）`
-              : `${v.field.name}（収穫予定 ${v.field.harvest} まで残り ${v.diffDays} 日）`
+              ? `${escapeHtml(v.field.name)}（収穫予定日 ${escapeHtml(v.field.harvest)} を ${Math.abs(v.diffDays)} 日経過）`
+              : `${escapeHtml(v.field.name)}（収穫予定 ${escapeHtml(v.field.harvest)} まで残り ${v.diffDays} 日）`
           ).join('・');
-          msgs.push(`⚠️ <strong>収穫前日数（PHI）制限違反アラート</strong>：${pest.name} は収穫前 <strong>${pest.phiDays}日以内</strong> の散布が禁止されています［対象: ${phiDetails}］！`);
+          msgs.push(`⚠️ <strong>収穫前日数（PHI）制限違反アラート</strong>：${escapeHtml(pest.name)} は収穫前 <strong>${pest.phiDays}日以内</strong> の散布が禁止されています［対象: ${phiDetails}］！`);
         }
         alertBox.className = 'p-3 rounded-xl border border-red-500/50 bg-red-500/15 text-xs font-bold text-red-600 space-y-1';
         alertBox.innerHTML = msgs.map(m => `<div>${m}</div>`).join('');
@@ -1485,8 +1708,8 @@
 
         return `
           <tr class="hover:bg-[var(--secondary)]/50">
-            <td class="p-2.5 font-semibold text-[var(--foreground)]">${f.name}</td>
-            <td class="p-2.5 text-right">${f.area}a</td>
+            <td class="p-2.5 font-semibold text-[var(--foreground)]">${escapeHtml(f.name)}</td>
+            <td class="p-2.5 text-right">${escapeHtml(f.area)}a</td>
             <td class="p-2.5 text-right font-mono">${(ratio * 100).toFixed(0)}%</td>
             <td class="p-2.5 text-right font-semibold">${allocHr.toFixed(2)}h</td>
             <td class="p-2.5 text-right">${rightCell}</td>
@@ -1525,6 +1748,105 @@
       }
     }
 
+    // =========================================================================
+    // 作業履歴の資源反映（機械アワー・資材在庫）／取消・修正
+    // =========================================================================
+    // sign = +1: 登録時の消費を適用 ／ -1: 取消時に元へ戻す
+    function applyLogResourceEffects_(log, sign) {
+      if (log.machineId && machines[log.machineId]) {
+        const m = machines[log.machineId];
+        m.currentHour = Math.max(0, Math.round((m.currentHour + sign * (Number(log.duration) || 0)) * 10) / 10);
+      }
+      const qty = log.stockDeducted !== undefined ? Number(log.stockDeducted) : (Number(log.inputQty) || 0);
+      if (!qty || !log.materialId) return;
+      const stockItem = log.type === 'fertilizer' ? fertilizers[log.materialId]
+        : log.type === 'pesticide' ? pesticides[log.materialId] : null;
+      if (stockItem) stockItem.stock = Math.max(0, stockItem.stock - sign * qty);
+    }
+
+    // 履歴を1件取り除き、機械アワー・在庫を戻して圃場集計を再計算（描画・保存はしない）
+    function removeWorkLog_(logId) {
+      const idx = workLogs.findIndex(l => l.id === logId);
+      if (idx === -1) return null;
+      const [log] = workLogs.splice(idx, 1);
+      applyLogResourceEffects_(log, -1);
+      recalculateFieldStats();
+      return { log, idx };
+    }
+
+    function restoreWorkLog_(backup) {
+      if (!backup) return;
+      workLogs.splice(backup.idx, 0, backup.log);
+      applyLogResourceEffects_(backup.log, +1);
+      recalculateFieldStats();
+    }
+
+    function deleteWorkLog(logId) {
+      const log = workLogs.find(l => l.id === logId);
+      if (!log) return;
+      const syncedNote = log.synced
+        ? '\n\n※この履歴はスプレッドシートへ同期済みです。スプレッドシート側の行は自動では削除されないため、必要に応じて手動で削除してください。'
+        : '';
+      if (!confirm(`${log.date} 「${log.cat}」の作業履歴を取り消しますか？\n機械アワー・資材在庫・圃場の累計値も元に戻ります。${syncedNote}`)) return;
+
+      removeWorkLog_(logId);
+      if (editingLogId === logId) cancelEditMode(true);
+      saveStateToStorage();
+      refreshAllViews();
+      showToast('🗑️ 作業履歴を取り消しました', '機械アワー・資材在庫・圃場の累計NPK／農薬使用回数を再計算しました。');
+    }
+
+    let editingLogId = null;
+
+    // 履歴の内容を入力フォームへ呼び戻して修正モードにする（登録時に旧履歴と置き換え）
+    function editWorkLog(logId) {
+      const log = workLogs.find(l => l.id === logId);
+      if (!log) return;
+      editingLogId = logId;
+
+      document.getElementById('workDateInput').value = dateKey_(log.date).replace(/\//g, '-');
+      document.getElementById('workerNameInput').value = log.worker || '';
+      selectedFieldIds = (log.fieldIds || []).filter(id => fieldsData.some(f => f.id === id));
+      if (selectedFieldIds.length === 0 && fieldsData[0]) selectedFieldIds = [fieldsData[0].id];
+      currentDuration = Number(log.duration) || 0.5;
+      document.getElementById('durationValue').textContent = currentDuration.toFixed(1);
+      document.getElementById('machineSelect').value = (log.machineId && machines[log.machineId]) ? log.machineId : 'NONE';
+
+      if (log.type === 'fertilizer' && fertilizers[log.materialId]) {
+        document.getElementById('fertilizerSelect').value = log.materialId;
+        currentBags = Number(log.inputQty) || 1;
+        document.getElementById('bagCountValue').textContent = currentBags;
+      } else if (log.type === 'pesticide' && pesticides[log.materialId]) {
+        document.getElementById('pesticideSelect').value = log.materialId;
+        const dilSel = document.getElementById('dilutionSelect');
+        const opt = [...dilSel.options].find(o => o.value.split('_')[0] === String(log.dilutionRate));
+        if (opt) dilSel.value = opt.value;
+      } else if (log.type === 'harvest') {
+        currentHarvestBags = Number(log.harvestBags) || Math.max(10, Math.round((Number(log.totalKg) || 0) / 30));
+        document.getElementById('harvestBagValue').textContent = currentHarvestBags;
+        if (log.grade) document.getElementById('harvestGradeSelect').value = log.grade;
+        if (log.moisture) document.getElementById('harvestMoistureInput').value = log.moisture;
+      }
+
+      selectWorkCat(log.cat);
+      renderInputFieldGrid();
+      recalculatePreview();
+
+      const banner = document.getElementById('editModeBanner');
+      document.getElementById('editModeText').textContent =
+        `✏️ 修正モード：${log.date}「${log.cat}」の履歴を編集中です。内容を直して下の登録ボタンを押すと置き換えられます。` +
+        (log.synced ? '（同期済み履歴のため、スプレッドシート側の旧行は手動で削除してください）' : '');
+      banner.classList.remove('hidden');
+      switchMainTab('input');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function cancelEditMode(silent) {
+      editingLogId = null;
+      document.getElementById('editModeBanner').classList.add('hidden');
+      if (!silent) showToast('修正モードを終了しました', '履歴は変更されていません。');
+    }
+
     // 一括登録実行 ＆ LocalStorage永続化
     function submitUnifiedWorkLog() {
       const selectedFields = fieldsData.filter(f => selectedFieldIds.includes(f.id));
@@ -1535,11 +1857,22 @@
       const formattedDate = workDateRaw.replace(/-/g, '/');
       const workerName = document.getElementById('workerNameInput').value || '佐藤 健一';
 
+      if (selectedFields.length === 0 || totalArea <= 0) {
+        showToast('⚠️ 入力確認', '面積のある圃場を1筆以上選択してください。');
+        return;
+      }
+
+      // 修正モード：旧履歴を一旦外してから安全基準チェック（旧履歴の使用回数を二重に数えないため）
+      const isEditing = !!editingLogId;
+      const editingBackup = isEditing ? removeWorkLog_(editingLogId) : null;
+      const abort = () => { restoreWorkLog_(editingBackup); };
+
       if (currentWorkCat === '防除') {
         const pestId = document.getElementById('pesticideSelect').value;
         const pest = pesticides[pestId];
         const overUseFields = selectedFields.filter(f => ((f.pestCount && f.pestCount[pestId]) || 0) + 1 > pest.maxUse);
         if (overUseFields.length > 0) {
+          abort();
           showToast('⛔ 安全基準エラー（使用回数超過）：登録をブロックしました', `${pest.name} の使用回数上限（${pest.maxUse}回）を超過する圃場が含まれています。`);
           return;
         }
@@ -1557,6 +1890,7 @@
           }
         });
         if (phiViolations.length > 0) {
+          abort();
           showToast(
             '⛔ 安全基準エラー（収穫前日数違反）：登録をブロックしました',
             `${pest.name} の収穫前日数制限（${pest.phiDays}日以上）を満たさない圃場があります：${phiViolations.join('・')}`
@@ -1565,16 +1899,12 @@
         }
       }
 
-      if (machId !== 'NONE' && machines[machId]) {
-        machines[machId].currentHour = Math.round((machines[machId].currentHour + currentDuration) * 10) / 10;
-      }
-
       let newLog = {
         id: 'WL-' + Date.now(),
         date: formattedDate,
         cat: currentWorkCat,
         worker: workerName,
-        fieldIds: [...selectedFieldIds],
+        fieldIds: selectedFields.map(f => f.id),
         totalArea: totalArea,
         duration: currentDuration,
         machineId: machId !== 'NONE' ? machId : '',
@@ -1589,28 +1919,18 @@
         const fert = fertilizers[fertId];
         const totalKg = currentBags * fert.unitKg;
         const per10aKg = totalKg / (totalArea / 10);
-        const n10a = per10aKg * (fert.n / 100);
-        const p10a = per10aKg * (fert.p / 100);
-        const k10a = per10aKg * (fert.k / 100);
-
-        fert.stock = Math.max(0, fert.stock - currentBags);
-
-        selectedFields.forEach(f => {
-          f.nPer10a = Math.round((f.nPer10a + n10a) * 100) / 100;
-          f.pPer10a = Math.round((f.pPer10a + p10a) * 100) / 100;
-          f.kPer10a = Math.round((f.kPer10a + k10a) * 100) / 100;
-        });
 
         newLog.type = 'fertilizer';
         newLog.materialId = fertId;
         newLog.inputQty = currentBags;
+        newLog.stockDeducted = Math.min(fert.stock, currentBags); // 取消時に正確に戻すため実引落量を記録
         newLog.fertName = fert.name;
         newLog.npkLabel = `${fert.n}-${fert.p}-${fert.k}`;
         newLog.totalKg = totalKg;
         newLog.per10aKg = per10aKg;
-        newLog.n10a = n10a;
-        newLog.p10a = p10a;
-        newLog.k10a = k10a;
+        newLog.n10a = per10aKg * (fert.n / 100);
+        newLog.p10a = per10aKg * (fert.p / 100);
+        newLog.k10a = per10aKg * (fert.k / 100);
         newLog.materialSummary = `${fert.name} (${currentBags}袋 / ${totalKg}kg)`;
       } else if (currentWorkCat === '防除') {
         const pestId = document.getElementById('pesticideSelect').value;
@@ -1620,16 +1940,10 @@
         const totalChemMl = (totalWaterL * 1000) / dilRate;
         const usedBottles = Math.max(1, Math.ceil(totalChemMl / 500));
 
-        pest.stock = Math.max(0, pest.stock - usedBottles);
-
-        selectedFields.forEach(f => {
-          if (!f.pestCount) f.pestCount = {};
-          f.pestCount[pestId] = (f.pestCount[pestId] || 0) + 1;
-        });
-
         newLog.type = 'pesticide';
         newLog.materialId = pestId;
         newLog.inputQty = usedBottles;
+        newLog.stockDeducted = Math.min(pest.stock, usedBottles);
         newLog.dilutionRate = dilRate;
         newLog.pestName = `${pest.name} (${pest.regNo})`;
         newLog.dilution = `${dilRate}倍`;
@@ -1645,37 +1959,31 @@
         const grade = document.getElementById('harvestGradeSelect')?.value || '1等';
         const moist = document.getElementById('harvestMoistureInput')?.value || '14.8';
 
-        selectedFields.forEach(f => {
-          const ratio = totalArea > 0 ? (f.area / totalArea) : 0;
-          f.harvestKg = (f.harvestKg || 0) + Math.round(harvTotalKg * ratio);
-          f.yieldTawara10a = Number(yieldTawara10a.toFixed(1));
-          f.grade = grade;
-        });
-
         newLog.type = 'harvest';
         newLog.totalKg = harvTotalKg;
+        newLog.harvestBags = currentHarvestBags;
+        newLog.yieldTawara10a = Number(yieldTawara10a.toFixed(1));
+        newLog.grade = grade;
+        newLog.moisture = moist;
         newLog.materialSummary = `玄米 ${currentHarvestBags}袋 (${harvTotalKg}kg) / 反収 ${yieldTawara10a.toFixed(1)}俵/10a / 水分${moist}% / ${grade}`;
       }
 
-      selectedFields.forEach(f => {
-        f.stage = `${currentWorkCat}済`;
-        if (!f.doneCats.includes(currentWorkCat)) {
-          f.doneCats.push(currentWorkCat);
-        }
-      });
+      // 機械アワー加算・資材在庫引落
+      applyLogResourceEffects_(newLog, +1);
 
-      workLogs.unshift(newLog);
+      // 修正時は元の位置に、新規時は先頭に追加 → 圃場の累計値は履歴から再計算
+      if (editingBackup) workLogs.splice(editingBackup.idx, 0, newLog);
+      else workLogs.unshift(newLog);
+      recalculateFieldStats();
+
+      if (isEditing) cancelEditMode(true);
       saveStateToStorage();
-
-      renderSelectOptions();
-      recalculatePreview();
-      renderGisHeatmap();
-      inspectField(currentInspectedFieldId);
-      renderResourcesTab();
-      renderReportsTab();
+      refreshAllViews();
 
       showToast(
-        `🎉 1アクションで ${selectedFields.length} 筆のカルテ＆作業日報を端末保存しました！`,
+        isEditing
+          ? `✏️ 作業履歴を修正しました（${selectedFields.length} 筆）`
+          : `🎉 1アクションで ${selectedFields.length} 筆のカルテ＆作業日報を端末保存しました！`,
         `対象: ${selectedFields.map(f => f.name).join('・')} (計${totalArea}a) ／ 画面をリロードしてもデータは保持されます。`
       );
     }
@@ -1733,9 +2041,9 @@
       if (pillList) {
         pillList.innerHTML = fieldsData.map(f => {
           const isCur = f.id === currentInspectedFieldId;
-          return `<button onclick="inspectField('${f.id}')" class="px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
+          return `<button onclick="inspectField('${escapeHtml(f.id)}')" class="px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
             isCur ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-[var(--background)] text-[var(--foreground)] border-[var(--border)]'
-          }">${f.name} (${f.area}a)</button>`;
+          }">${escapeHtml(f.name)} (${escapeHtml(f.area)}a)</button>`;
         }).join('');
       }
     }
@@ -1762,23 +2070,27 @@
       document.getElementById('kartePBar').style.width = Math.min(100, Math.round((f.pPer10a / 6.0) * 100)) + '%';
       document.getElementById('karteKBar').style.width = Math.min(100, Math.round((f.kPer10a / 6.0) * 100)) + '%';
 
-      const fieldLogs = workLogs.filter(l => l.fieldIds.includes(fieldId));
+      const fieldLogs = workLogs.filter(l => (l.fieldIds || []).includes(fieldId));
       const histContainer = document.getElementById('karteHistoryList');
 
       if (fieldLogs.length === 0) {
         histContainer.innerHTML = `<div class="p-4 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--muted-foreground)]">まだ作業履歴がありません。</div>`;
       } else {
         histContainer.innerHTML = fieldLogs.map(l => {
-          const ratio = f.area / l.totalArea;
-          const allocHr = (l.duration * ratio).toFixed(2);
+          const ratio = logAreaRatio_(l, f);
+          const allocHr = ((Number(l.duration) || 0) * ratio).toFixed(2);
           return `
             <div class="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs">
               <div class="flex items-center justify-between font-bold text-[var(--foreground)]">
-                <span>📅 ${l.date} — ${l.cat}</span>
+                <span>📅 ${escapeHtml(l.date)} — ${escapeHtml(l.cat)}${l.synced ? '' : ' <span class="text-amber-600 font-semibold">(未同期)</span>'}</span>
                 <span class="text-emerald-600">按分時間: ${allocHr}h</span>
               </div>
-              <div class="text-[var(--muted-foreground)] mt-1">${l.materialSummary}</div>
-              <div class="text-[var(--muted-foreground)] mt-0.5">作業者: ${l.worker} ／ 機械: ${l.machineName}</div>
+              <div class="text-[var(--muted-foreground)] mt-1">${escapeHtml(l.materialSummary)}</div>
+              <div class="text-[var(--muted-foreground)] mt-0.5">作業者: ${escapeHtml(l.worker)} ／ 機械: ${escapeHtml(l.machineName)}</div>
+              <div class="flex justify-end gap-1.5 mt-2">
+                <button onclick="editWorkLog('${escapeHtml(l.id)}')" class="px-2 py-0.5 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] font-semibold hover:opacity-80">✏️ 修正</button>
+                <button onclick="deleteWorkLog('${escapeHtml(l.id)}')" class="px-2 py-0.5 rounded-lg border border-red-500/40 bg-red-500/10 text-red-600 font-semibold hover:bg-red-500/20">🗑️ 取消</button>
+              </div>
             </div>
           `;
         }).join('');
@@ -1832,10 +2144,10 @@
         return `
           <div class="p-4 rounded-2xl bg-[var(--background)] border border-[var(--border)]">
             <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
-              <div class="font-bold text-sm text-[var(--foreground)]">${m.name}</div>
+              <div class="font-bold text-sm text-[var(--foreground)]">${escapeHtml(m.name)}</div>
               <div class="flex items-center gap-2">
                 ${badge}
-                <button onclick="completeMachineMaintenance('${m.id}')" class="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition">
+                <button onclick="completeMachineMaintenance('${escapeHtml(m.id)}')" class="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition">
                   🔧 点検・オイル交換完了
                 </button>
               </div>
@@ -1858,14 +2170,14 @@
           <div class="p-3.5 rounded-2xl bg-[var(--background)] border border-[var(--border)] flex items-center justify-between gap-2">
             <div>
               <span class="text-xs font-bold text-emerald-600">[肥料] N${f.n}-P${f.p}-K${f.k}</span>
-              <div class="font-bold text-sm text-[var(--foreground)]">${f.name}</div>
+              <div class="font-bold text-sm text-[var(--foreground)]">${escapeHtml(f.name)}</div>
               <div class="text-xs text-[var(--muted-foreground)]">${isLow ? '⚠️ 発注点割れ（要補充）' : '在庫十分'}</div>
             </div>
             <div class="flex items-center gap-2.5 shrink-0">
               <div class="text-right">
                 <div class="text-base font-bold ${isLow ? 'text-amber-600' : 'text-[var(--foreground)]'}">残 ${f.stock} 袋</div>
               </div>
-              <button onclick="restockMaterial('fert', '${f.id}', 10)" class="px-2.5 py-1.5 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold border border-[var(--border)] hover:opacity-80">
+              <button onclick="restockMaterial('fert', '${escapeHtml(f.id)}', 10)" class="px-2.5 py-1.5 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold border border-[var(--border)] hover:opacity-80">
                 ＋10袋入庫
               </button>
             </div>
@@ -1877,15 +2189,15 @@
         return `
           <div class="p-3.5 rounded-2xl bg-[var(--background)] border border-[var(--border)] flex items-center justify-between gap-2">
             <div>
-              <span class="text-xs font-bold text-sky-600">[農薬] ${p.regNo} (上限${p.maxUse}回)</span>
-              <div class="font-bold text-sm text-[var(--foreground)]">${p.name}</div>
+              <span class="text-xs font-bold text-sky-600">[農薬] ${escapeHtml(p.regNo)} (上限${p.maxUse}回)</span>
+              <div class="font-bold text-sm text-[var(--foreground)]">${escapeHtml(p.name)}</div>
               <div class="text-xs text-[var(--muted-foreground)]">収穫前 ${p.phiDays} 日まで</div>
             </div>
             <div class="flex items-center gap-2.5 shrink-0">
               <div class="text-right">
                 <div class="text-base font-bold text-[var(--foreground)]">残 ${p.stock} 本</div>
               </div>
-              <button onclick="restockMaterial('pest', '${p.id}', 5)" class="px-2.5 py-1.5 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold border border-[var(--border)] hover:opacity-80">
+              <button onclick="restockMaterial('pest', '${escapeHtml(p.id)}', 5)" class="px-2.5 py-1.5 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold border border-[var(--border)] hover:opacity-80">
                 ＋5本入庫
               </button>
             </div>
@@ -1924,7 +2236,7 @@
 
       const uniqueCrops = [...new Set(fieldsData.map(f => f.crop).filter(Boolean))];
       cropSel.innerHTML = [
-        ...uniqueCrops.map(c => `<option value="${c}">🌾 品種：${c}</option>`),
+        ...uniqueCrops.map(c => `<option value="${escapeHtml(c)}">🌾 品種：${escapeHtml(c)}</option>`),
         `<option value="ALL">すべての品種（全圃場）</option>`
       ].join('');
       if (uniqueCrops.includes(curCrop) || curCrop === 'ALL') {
@@ -1943,7 +2255,7 @@
         `<option value="GROUP_gps">📍 本場平場団地のみ</option>`,
         `<option value="GROUP_yama">⛰️ 中山間・上山田団地のみ</option>`,
         `<option value="GROUP_river">🌊 川向団地のみ</option>`,
-        ...cropMatchedFields.map(f => `<option value="${f.id}">個別圃場：${f.name} (${f.area}a)</option>`)
+        ...cropMatchedFields.map(f => `<option value="${escapeHtml(f.id)}">個別圃場：${escapeHtml(f.name)} (${escapeHtml(f.area)}a)</option>`)
       ].join('');
 
       if ([...fieldSel.options].some(o => o.value === curField)) {
@@ -2011,14 +2323,14 @@
         weightedPTotalKg += l.p10a * (matchedArea / 10);
         weightedKTotalKg += l.k10a * (matchedArea / 10);
 
-        const fNames = matchedFieldsInLog.map(f => f.name).join('、');
+        const fNames = escapeHtml(matchedFieldsInLog.map(f => f.name).join('、'));
         return `
           <tr>
-            <td class="border border-slate-400 p-2">${l.date}</td>
+            <td class="border border-slate-400 p-2">${escapeHtml(l.date)}</td>
             <td class="border border-slate-400 p-2">${fNames}</td>
             <td class="border border-slate-400 p-2 text-right">${matchedArea} a</td>
-            <td class="border border-slate-400 p-2 font-semibold">${l.fertName}</td>
-            <td class="border border-slate-400 p-2 text-center">${l.npkLabel}</td>
+            <td class="border border-slate-400 p-2 font-semibold">${escapeHtml(l.fertName)}</td>
+            <td class="border border-slate-400 p-2 text-center">${escapeHtml(l.npkLabel)}</td>
             <td class="border border-slate-400 p-2 text-right">${allocatedKg} kg</td>
             <td class="border border-slate-400 p-2 text-right font-bold">${l.per10aKg.toFixed(1)} kg</td>
             <td class="border border-slate-400 p-2 text-right font-bold text-emerald-700">${l.n10a.toFixed(2)} kg</td>
@@ -2058,34 +2370,38 @@
         const allocWaterL = Math.round(l.waterL * areaRatio * 10) / 10;
         const rawChemMl = parseFloat(String(l.chemAmount || '0').replace(/,/g, '')) || 0;
         const allocChemMl = Math.round(rawChemMl * areaRatio);
-        const fNames = matchedFieldsInLog.map(f => f.name).join('、');
+        const fNames = escapeHtml(matchedFieldsInLog.map(f => f.name).join('、'));
         return `
           <tr>
-            <td class="border border-slate-400 p-2">${l.date}</td>
+            <td class="border border-slate-400 p-2">${escapeHtml(l.date)}</td>
             <td class="border border-slate-400 p-2">${fNames}</td>
             <td class="border border-slate-400 p-2 text-right">${matchedArea} a</td>
-            <td class="border border-slate-400 p-2 font-semibold">${l.pestName}</td>
-            <td class="border border-slate-400 p-2 text-center">${l.dilution}</td>
+            <td class="border border-slate-400 p-2 font-semibold">${escapeHtml(l.pestName)}</td>
+            <td class="border border-slate-400 p-2 text-center">${escapeHtml(l.dilution)}</td>
             <td class="border border-slate-400 p-2 text-right">${allocWaterL} L</td>
             <td class="border border-slate-400 p-2 text-right font-bold">${allocChemMl.toLocaleString()} mL</td>
-            <td class="border border-slate-400 p-2 text-center">${l.useCountLabel}</td>
+            <td class="border border-slate-400 p-2 text-center">${escapeHtml(l.useCountLabel)}</td>
             <td class="border border-slate-400 p-2 text-center font-bold text-emerald-700">適（基準内）</td>
           </tr>
         `;
       }).join('') || `<tr><td colspan="9" class="border border-slate-400 p-3 text-center text-slate-500">該当する防除履歴はありません</td></tr>`;
 
       document.getElementById('dailyReportBody').innerHTML = workLogs.map(l => {
-        const fNames = l.fieldIds.map(id => fieldsData.find(f => f.id === id)?.name || id).join('、');
+        const fNames = escapeHtml((l.fieldIds || []).map(id => fieldsData.find(f => f.id === id)?.name || id).join('、'));
         return `
           <tr>
-            <td class="border border-slate-400 p-2">${l.date}</td>
-            <td class="border border-slate-400 p-2 font-bold">${l.cat}</td>
-            <td class="border border-slate-400 p-2">${l.worker}</td>
+            <td class="border border-slate-400 p-2">${escapeHtml(l.date)}</td>
+            <td class="border border-slate-400 p-2 font-bold">${escapeHtml(l.cat)}</td>
+            <td class="border border-slate-400 p-2">${escapeHtml(l.worker)}</td>
             <td class="border border-slate-400 p-2">${fNames}</td>
-            <td class="border border-slate-400 p-2 text-right">${l.totalArea} a</td>
-            <td class="border border-slate-400 p-2 text-right font-bold">${l.duration.toFixed(1)} h</td>
-            <td class="border border-slate-400 p-2">${l.machineName}</td>
-            <td class="border border-slate-400 p-2">${l.materialSummary}</td>
+            <td class="border border-slate-400 p-2 text-right">${escapeHtml(l.totalArea)} a</td>
+            <td class="border border-slate-400 p-2 text-right font-bold">${(Number(l.duration) || 0).toFixed(1)} h</td>
+            <td class="border border-slate-400 p-2">${escapeHtml(l.machineName)}</td>
+            <td class="border border-slate-400 p-2">${escapeHtml(l.materialSummary)}</td>
+            <td class="no-print border border-slate-400 p-1 text-center whitespace-nowrap">
+              <button onclick="editWorkLog('${escapeHtml(l.id)}')" class="px-1.5 py-0.5 rounded border border-slate-300 bg-white hover:bg-slate-100" title="修正">✏️</button>
+              <button onclick="deleteWorkLog('${escapeHtml(l.id)}')" class="px-1.5 py-0.5 rounded border border-red-300 bg-red-50 hover:bg-red-100" title="取消">🗑️</button>
+            </td>
           </tr>
         `;
       }).join('');
@@ -2101,16 +2417,16 @@
           const gradeStr = f.grade || (defaultHarvKg > 0 ? '1等(見込)' : '収穫前');
           return `
             <tr>
-              <td class="border border-slate-400 p-2 font-bold">${f.name} <span class="font-normal text-slate-600">(${f.lot})</span></td>
-              <td class="border border-slate-400 p-2">${f.crop}</td>
-              <td class="border border-slate-400 p-2 text-right">${f.area} a</td>
+              <td class="border border-slate-400 p-2 font-bold">${escapeHtml(f.name)} <span class="font-normal text-slate-600">(${escapeHtml(f.lot)})</span></td>
+              <td class="border border-slate-400 p-2">${escapeHtml(f.crop)}</td>
+              <td class="border border-slate-400 p-2 text-right">${escapeHtml(f.area)} a</td>
               <td class="border border-slate-400 p-2 text-right font-semibold">${cumHr.toFixed(2)} h</td>
               <td class="border border-slate-400 p-2 text-right font-bold text-emerald-700">${f.nPer10a.toFixed(2)} kg</td>
               <td class="border border-slate-400 p-2 text-right text-sky-700">${f.pPer10a.toFixed(2)} kg</td>
               <td class="border border-slate-400 p-2 text-right text-amber-700">${f.kPer10a.toFixed(2)} kg</td>
               <td class="border border-slate-400 p-2 text-right font-bold">${defaultHarvKg > 0 ? defaultHarvKg.toLocaleString() + ' kg' : '-'}</td>
               <td class="border border-slate-400 p-2 text-right font-bold text-amber-700">${defaultYieldTawara > 0 ? defaultYieldTawara.toFixed(1) + ' 俵' : '-'}</td>
-              <td class="border border-slate-400 p-2 text-center font-semibold">${gradeStr}</td>
+              <td class="border border-slate-400 p-2 text-center font-semibold">${escapeHtml(gradeStr)}</td>
             </tr>
           `;
         }).join('');
@@ -2120,8 +2436,8 @@
     function exportCsvData() {
       const header = ['作業日', '作業分類', '作業者', '対象圃場', '合計面積(a)', '作業時間(h)', '使用機械', '使用資材摘要'];
       const rows = workLogs.map(l => {
-        const fNames = l.fieldIds.map(id => fieldsData.find(f => f.id === id)?.name || id).join('・');
-        return [l.date, l.cat, l.worker, `"${fNames}"`, l.totalArea, l.duration, `"${l.machineName}"`, `"${l.materialSummary}"`].join(',');
+        const fNames = (l.fieldIds || []).map(id => fieldsData.find(f => f.id === id)?.name || id).join('・');
+        return [l.date, l.cat, l.worker, fNames, l.totalArea, l.duration, l.machineName, l.materialSummary].map(toCsvCell).join(',');
       });
       const csvContent = '\uFEFF' + [header.join(','), ...rows].join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -2148,7 +2464,7 @@
         return;
       }
 
-      const newId = 'F0' + (fieldsData.length + 1);
+      const newId = generateNextId('F', fieldsData.map(f => f.id));
       fieldsData.push({
         id: newId,
         name: name,
@@ -2164,7 +2480,8 @@
         nPer10a: 0,
         pPer10a: 0,
         kPer10a: 0,
-        pestCount: {}
+        pestCount: {},
+        baseline: makeEmptyBaseline()
       });
 
       document.getElementById('newFieldName').value = '';
@@ -2187,7 +2504,7 @@
         return;
       }
 
-      const newId = 'F0' + (Object.keys(fertilizers).length + 1);
+      const newId = generateNextId('F', Object.keys(fertilizers));
       fertilizers[newId] = { id: newId, name, unitKg: 20, n, p, k, stock, minStock: 10 };
       document.getElementById('newFertName').value = '';
       saveStateToStorage();
@@ -2202,28 +2519,59 @@
     }
 
     async function syncWithGasBackend() {
+      if (isOfflineMode) {
+        showToast('📡 現在オフラインモード中です', 'オンラインに復帰してからスプレッドシート同期を実行してください。');
+        return;
+      }
+
       const unsynced = workLogs.filter(l => !l.synced);
       const url = document.getElementById('gasWebhookUrl').value.trim();
 
       if (!url) {
-        workLogs.forEach(l => l.synced = true);
+        if (unsynced.length === 0) {
+          showToast('☁️ すべての作業日誌が同期済みです', '未送信の作業日誌はありません（GAS URLを設定すると実シートと連携できます）。');
+          return;
+        }
+        unsynced.forEach(l => { l.synced = true; });
         saveStateToStorage();
-        showToast('☁️ クラウド同期シミュレート完了', 'GASウェブアプリURLを設定（タブ5）すると、実際のGoogleスプレッドシートへ直接POST送信＆自動按分されます。');
+        refreshAllViews();
+        showToast(`☁️ クラウド同期シミュレート完了（${unsynced.length}件）`, 'GASウェブアプリURLを設定（タブ5）すると、実際のGoogleスプレッドシートへ直接POST送信＆自動按分されます。');
         return;
       }
 
       try {
-        await fetch(url, {
+        // 未送信ログのみを送信（unsynced が 0 件のときに workLogs[0] を再送しない）
+        const response = await fetch(url, {
           method: 'POST',
-          mode: 'no-cors',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ fields: fieldsData, logs: unsynced.length > 0 ? unsynced : [workLogs[0]] })
+          body: JSON.stringify({ fields: fieldsData, logs: unsynced })
         });
-        workLogs.forEach(l => l.synced = true);
+        let acceptedIds = unsynced.map(l => l.id);
+        try {
+          const resJson = await response.json();
+          if (resJson && resJson.status === 'error') {
+            throw new Error(resJson.message || 'GAS error');
+          }
+          if (resJson && Array.isArray(resJson.acceptedIds)) {
+            acceptedIds = resJson.acceptedIds;
+          }
+        } catch (_) {
+          // no-cors フォールバックまたはJSON以外の応答時は送信分を同期済とする
+        }
+        const acceptedSet = new Set(acceptedIds);
+        workLogs.forEach(l => {
+          if (acceptedSet.has(l.id)) l.synced = true;
+        });
         saveStateToStorage();
-        showToast('☁️ Googleスプレッドシートへ同期送信しました！', '新規移行した圃場データと作業日誌がスプレッドシートへ送信され、自動面積按分・JA帳票更新が実行されました。');
+        refreshAllViews();
+        showToast(
+          unsynced.length > 0
+            ? `☁️ Googleスプレッドシートへ ${unsynced.length} 件を同期送信しました！`
+            : '☁️ 圃場マスタを同期確認しました（未送信の作業日誌は0件です）',
+          '重複防止（べき等）チェック付きで送信され、自動面積按分・JA帳票更新が実行されました。'
+        );
       } catch (err) {
-        showToast('⚠️ 通信エラー（端末内に安全に保存されています）', '電波状況を確認後、再度同期ボタンを押してください。');
+        showToast('⚠️ 通信エラー（端末内に安全に保存されています）', '電波状況またはGAS URLを確認後、再度同期ボタンを押してください。');
       }
     }
 
@@ -2318,11 +2666,11 @@ AGN-103,⑩ アグリ山間棚田,上山田飛び地,上山田字沢 110,1400,�
             tHead.innerHTML = `<tr><th class="p-2">変換後の圃場名</th><th class="p-2">地番</th><th class="p-2">面積自動換算</th><th class="p-2">作付品種</th><th class="p-2">GPS座標</th></tr>`;
             tBody.innerHTML = pendingMigrationItems.map(item => `
               <tr>
-                <td class="p-2 font-bold">${item.name}</td>
-                <td class="p-2">${item.lot}</td>
-                <td class="p-2 text-emerald-600 font-bold">${item.rawAreaNote}</td>
-                <td class="p-2">${item.crop}</td>
-                <td class="p-2 font-mono">${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}</td>
+                <td class="p-2 font-bold">${escapeHtml(item.name)}</td>
+                <td class="p-2">${escapeHtml(item.lot)}</td>
+                <td class="p-2 text-emerald-600 font-bold">${escapeHtml(item.rawAreaNote)}</td>
+                <td class="p-2">${escapeHtml(item.crop)}</td>
+                <td class="p-2 font-mono">${Number(item.lat).toFixed(4)}, ${Number(item.lng).toFixed(4)}</td>
               </tr>
             `).join('');
             return;
@@ -2330,11 +2678,12 @@ AGN-103,⑩ アグリ山間棚田,上山田飛び地,上山田字沢 110,1400,�
         } catch (e) {}
       }
 
-      // 2. CSV または TSV (Excelコピペ) のパース
-      const lines = raw.split(/\r?\n/).filter(l => l.trim().length > 0);
-      if (lines.length < 2) return;
-      const delimiter = lines[0].includes('\t') ? '\t' : ',';
-      const headers = lines[0].split(delimiter).map(h => h.replace(/^"|"$/g, '').trim());
+      // 2. CSV または TSV (Excelコピペ) のパース（ダブルクォート内のカンマ・改行・""エスケープ対応）
+      const firstLine = raw.split(/\r?\n/)[0] || '';
+      const delimiter = firstLine.includes('\t') ? '\t' : ',';
+      const parsedRows = parseDelimitedText(raw, delimiter);
+      if (parsedRows.length < 2) return;
+      const headers = parsedRows[0].map(h => h.trim());
       const findIdx = (kwList) => headers.findIndex(h => kwList.some(k => h.includes(k)));
 
       const dateIdx = findIdx(['作業日', '実施日', '散布日', '施用日', '日付']);
@@ -2357,8 +2706,7 @@ AGN-103,⑩ アグリ山間棚田,上山田飛び地,上山田字沢 110,1400,�
 
         summary.textContent = `作業日・作業項目・面積（${haIdx !== -1 ? 'ha→a自動換算' : 'a'}）・使用資材・NPK成分を自動マッピングしました。`;
 
-        pendingMigrationItems = lines.slice(1).map(line => {
-          const cols = line.split(delimiter).map(c => c.replace(/^"|"$/g, '').trim());
+        pendingMigrationItems = parsedRows.slice(1).map((cols, rowIdx) => {
           const areaA = haIdx !== -1 ? Math.round(Number(cols[haIdx] || 0.3) * 100) : Number(cols[aIdx] || 30);
           const catRaw = cols[catIdx] || '耕起';
           const cat = catRaw.includes('肥') ? '施肥' : (catRaw.includes('防除') || catRaw.includes('散布') ? '防除' : catRaw);
@@ -2370,19 +2718,21 @@ AGN-103,⑩ アグリ山間棚田,上山田飛び地,上山田字沢 110,1400,�
           const per10aKg = areaA > 0 ? totalKg / (areaA / 10) : 0;
 
           // 既存の圃場名と照合してIDを紐付け
-          const rawFieldNames = fieldIdx !== -1 ? cols[fieldIdx].split(/[・,、]/) : ['① 本場1号'];
+          const rawFieldNames = fieldIdx !== -1 && cols[fieldIdx] ? cols[fieldIdx].split(/[・,、]/) : ['① 本場1号'];
           const matchedIds = [];
           rawFieldNames.forEach(fn => {
-            const found = fieldsData.find(f => f.name.includes(fn.trim()) || fn.trim().includes(f.name));
-            if (found) matchedIds.push(found.id);
+            const trimmed = fn.trim();
+            if (!trimmed) return;
+            const found = fieldsData.find(f => f.name.includes(trimmed) || trimmed.includes(f.name) || f.id === trimmed);
+            if (found && !matchedIds.includes(found.id)) matchedIds.push(found.id);
           });
           if (matchedIds.length === 0) matchedIds.push('F01');
 
           return {
-            id: 'IMP-WL-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5),
-            date: cols[dateIdx],
+            id: `IMP-WL-${Date.now()}-${rowIdx + 1}-${Math.random().toString(36).slice(2, 5)}`,
+            date: (cols[dateIdx] || '').replace(/-/g, '/'),
             cat: cat,
-            worker: workerIdx !== -1 ? cols[workerIdx] : '佐藤 健一',
+            worker: workerIdx !== -1 && cols[workerIdx] ? cols[workerIdx] : '佐藤 健一',
             fieldIds: matchedIds,
             fieldNamesLabel: cols[fieldIdx] || '① 本場1号',
             totalArea: areaA,
@@ -2404,12 +2754,12 @@ AGN-103,⑩ アグリ山間棚田,上山田飛び地,上山田字沢 110,1400,�
         tHead.innerHTML = `<tr><th class="p-2">作業日</th><th class="p-2">分類</th><th class="p-2">対象圃場</th><th class="p-2">換算面積</th><th class="p-2">時間</th><th class="p-2">資材・NPK自動計算</th></tr>`;
         tBody.innerHTML = pendingMigrationItems.map(item => `
           <tr>
-            <td class="p-2">${item.date}</td>
-            <td class="p-2 font-bold text-emerald-600">${item.cat}</td>
-            <td class="p-2">${item.fieldNamesLabel}</td>
-            <td class="p-2 font-bold">${item.totalArea} a</td>
-            <td class="p-2">${item.duration} h</td>
-            <td class="p-2">${item.materialSummary}</td>
+            <td class="p-2">${escapeHtml(item.date)}</td>
+            <td class="p-2 font-bold text-emerald-600">${escapeHtml(item.cat)}</td>
+            <td class="p-2">${escapeHtml(item.fieldNamesLabel)}</td>
+            <td class="p-2 font-bold">${escapeHtml(item.totalArea)} a</td>
+            <td class="p-2">${escapeHtml(item.duration)} h</td>
+            <td class="p-2">${escapeHtml(item.materialSummary)}</td>
           </tr>
         `).join('');
       } else {
@@ -2428,8 +2778,7 @@ AGN-103,⑩ アグリ山間棚田,上山田飛び地,上山田字沢 110,1400,�
 
         summary.textContent = `ほ場名・地番・面積（${m2Idx !== -1 ? '㎡→a自動換算' : (haIdx !== -1 ? 'ha→a自動換算' : 'a')}）・品種・GPS座標を自動マッピングしました。`;
 
-        pendingMigrationItems = lines.slice(1).map((line, idx) => {
-          const cols = line.split(delimiter).map(c => c.replace(/^"|"$/g, '').trim());
+        pendingMigrationItems = parsedRows.slice(1).map((cols, idx) => {
           let areaA = 20;
           let note = '';
           if (m2Idx !== -1 && cols[m2Idx]) {
@@ -2451,7 +2800,7 @@ AGN-103,⑩ アグリ山間棚田,上山田飛び地,上山田字沢 110,1400,�
             lot: lotIdx !== -1 ? cols[lotIdx] : '-',
             area: areaA,
             rawAreaNote: note,
-            crop: cropIdx !== -1 ? cols[cropIdx] : 'コシヒカリ (BL)',
+            crop: cropIdx !== -1 && cols[cropIdx] ? cols[cropIdx] : 'コシヒカリ (BL)',
             harvest: harvIdx !== -1 && cols[harvIdx] ? cols[harvIdx].replace(/-/g, '/') : '2026/09/22',
             lat: latIdx !== -1 && cols[latIdx] ? Number(cols[latIdx]) : 37.9165,
             lng: lngIdx !== -1 && cols[lngIdx] ? Number(cols[lngIdx]) : 139.0370
@@ -2461,11 +2810,11 @@ AGN-103,⑩ アグリ山間棚田,上山田飛び地,上山田字沢 110,1400,�
         tHead.innerHTML = `<tr><th class="p-2">変換後の圃場名</th><th class="p-2">地番</th><th class="p-2">面積自動換算</th><th class="p-2">品種</th><th class="p-2">収穫予定日</th></tr>`;
         tBody.innerHTML = pendingMigrationItems.map(item => `
           <tr>
-            <td class="p-2 font-bold">${item.name}</td>
-            <td class="p-2">${item.lot}</td>
-            <td class="p-2 font-bold text-emerald-600">${item.rawAreaNote}</td>
-            <td class="p-2">${item.crop}</td>
-            <td class="p-2">${item.harvest}</td>
+            <td class="p-2 font-bold">${escapeHtml(item.name)}</td>
+            <td class="p-2">${escapeHtml(item.lot)}</td>
+            <td class="p-2 font-bold text-emerald-600">${escapeHtml(item.rawAreaNote)}</td>
+            <td class="p-2">${escapeHtml(item.crop)}</td>
+            <td class="p-2">${escapeHtml(item.harvest)}</td>
           </tr>
         `).join('');
       }
@@ -2478,8 +2827,8 @@ AGN-103,⑩ アグリ山間棚田,上山田飛び地,上山田字沢 110,1400,�
       }
 
       if (pendingMigrationMode === 'fields') {
-        pendingMigrationItems.forEach((item, idx) => {
-          const newId = 'F' + String(fieldsData.length + 1).padStart(2, '0');
+        pendingMigrationItems.forEach((item) => {
+          const newId = generateNextId('F', fieldsData.map(f => f.id));
           fieldsData.push({
             id: newId,
             name: item.name,
@@ -2495,12 +2844,12 @@ AGN-103,⑩ アグリ山間棚田,上山田飛び地,上山田字沢 110,1400,�
             nPer10a: 0,
             pPer10a: 0,
             kPer10a: 0,
-            pestCount: {}
+            pestCount: {},
+            baseline: makeEmptyBaseline()
           });
         });
         saveStateToStorage();
-        renderInputFieldGrid();
-        renderGisHeatmap();
+        refreshAllViews();
         showToast(
           `🎉 他社データから ${pendingMigrationItems.length} 筆の圃場を一括インポートしました！`,
           '面積単位（㎡/ha → a）も自動換算され、現場入力画面・GISカルテに即時追加されました。'
@@ -2508,26 +2857,13 @@ AGN-103,⑩ アグリ山間棚田,上山田飛び地,上山田字沢 110,1400,�
       } else {
         pendingMigrationItems.forEach(logItem => {
           workLogs.unshift(logItem);
-          logItem.fieldIds.forEach(fid => {
-            const f = fieldsData.find(x => x.id === fid);
-            if (f) {
-              f.stage = `${logItem.cat}済`;
-              if (!f.doneCats.includes(logItem.cat)) f.doneCats.push(logItem.cat);
-              if (logItem.type === 'fertilizer') {
-                f.nPer10a = Math.round((f.nPer10a + logItem.n10a) * 100) / 100;
-                f.pPer10a = Math.round((f.pPer10a + logItem.p10a) * 100) / 100;
-                f.kPer10a = Math.round((f.kPer10a + logItem.k10a) * 100) / 100;
-              }
-            }
-          });
         });
+        recalculateFieldStats();
         saveStateToStorage();
-        renderGisHeatmap();
-        inspectField(currentInspectedFieldId);
-        renderReportsTab();
+        refreshAllViews();
         showToast(
           `🎉 他社アプリから ${pendingMigrationItems.length} 件の作業・施肥履歴を一括インポートしました！`,
-          '各圃場の進捗・累計NPKおよびJA提出用A4帳票へ即時反映されました。'
+          '各圃場の進捗・累計NPKおよびJA提出用A4帳票へ即時反映されました（取消・修正も可能）。'
         );
       }
 
