@@ -423,6 +423,7 @@
           <button onclick="setHeatmapLayer('草刈り')" id="heatBtn-草刈り" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">草刈り</button>
           <button onclick="setHeatmapLayer('施肥')" id="heatBtn-施肥" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">施肥</button>
           <button onclick="setHeatmapLayer('防除')" id="heatBtn-防除" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">防除</button>
+          <button onclick="setHeatmapLayer('temp')" id="heatBtn-temp" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">🌡️ 積算温度・刈取適期</button>
         </div>
       </div>
 
@@ -551,6 +552,51 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- 機能①：水稲「出穂後積算温度（1,000℃）」＆ 刈取適期予測 -->
+      <div class="p-4 rounded-2xl bg-[var(--background)] border border-[var(--border)] mb-4">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <span class="text-xs font-bold text-[var(--foreground)]">🌡️ 出穂後積算温度（1,000℃）＆ 刈取適期予測</span>
+          <span id="karteTempBadge" class="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-600">登熟順調</span>
+        </div>
+        <div class="flex items-center justify-between gap-2 text-xs mb-2">
+          <div class="flex items-center gap-1.5">
+            <label for="karteHeadingDateInput" class="text-[var(--muted-foreground)] font-semibold">出穂日:</label>
+            <input type="date" id="karteHeadingDateInput" onchange="updateFieldHeadingDate(this.value)" class="px-2 py-1 rounded-lg bg-[var(--card)] border border-[var(--border)] text-xs font-bold text-[var(--foreground)]">
+          </div>
+          <div class="text-right font-bold text-[var(--foreground)]" id="karteTempText">890℃ / 1,000℃</div>
+        </div>
+        <div class="w-full h-2.5 rounded-full bg-[var(--secondary)] overflow-hidden mb-1.5">
+          <div id="karteTempBar" class="h-full bg-emerald-500 rounded-full transition-all" style="width: 89%"></div>
+        </div>
+        <div class="text-xs text-[var(--muted-foreground)]" id="kartePredictedHarvestText">
+          刈取適期予測: 2026/09/16（残り約5日 ／ 日平均24.5℃換算）
+        </div>
+      </div>
+
+      <!-- 機能③：現地見回りメモ ＆ 被害・生育アラート記録 -->
+      <div class="p-4 rounded-2xl bg-[var(--background)] border border-[var(--border)] mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold text-[var(--foreground)]">📸 現地見回りメモ・被害アラート（獣害・水漏れ・雑草）</span>
+          <span id="karteAlertCountBadge" class="px-2 py-0.5 rounded-full text-xs font-bold bg-[var(--secondary)] text-[var(--muted-foreground)]">0件</span>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-1.5 mb-2.5">
+          <select id="karteAlertPresetSelect" class="px-2.5 py-1.5 rounded-xl bg-[var(--card)] border border-[var(--border)] text-xs font-bold text-[var(--foreground)]">
+            <option value="🐗 獣害（イノシシ畦畔掘り・侵入跡）">🐗 獣害（イノシシ畦畔掘り・侵入跡）</option>
+            <option value="💧 水口・畦畔の水漏れ確認（要補修）">💧 水口・畦畔の水漏れ確認（要補修）</option>
+            <option value="🌿 ヒエ・雑草多発（部分除草・手取り要）">🌿 ヒエ・雑草多発（部分除草・手取り要）</option>
+            <option value="🦗 斑点米カメムシ注意（畦畔草刈り・防除確認）">🦗 斑点米カメムシ注意</option>
+            <option value="🌾 倒伏・生育ムラ注意（排水・追肥調整）">🌾 倒伏・生育ムラ注意</option>
+          </select>
+          <div class="flex gap-1.5 flex-1">
+            <input type="text" id="karteAlertCustomInput" placeholder="補足メモ（任意：北側水口など）" class="flex-1 px-2.5 py-1.5 rounded-xl bg-[var(--card)] border border-[var(--border)] text-xs text-[var(--foreground)]">
+            <button onclick="addFieldAlert()" class="px-3 py-1.5 rounded-xl bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 transition shrink-0">
+              ＋ ピン留め
+            </button>
+          </div>
+        </div>
+        <div id="karteAlertList" class="space-y-1.5"></div>
       </div>
 
       <div>
@@ -712,15 +758,34 @@
         </div>
       </div>
 
-      <!-- 帳票3：圃場別「反収×NPK成分×労働時間」経営分析総括表 -->
+      <!-- 帳票3：圃場別「反収×NPK成分×労働時間×10a原価・粗利」経営分析総括表 -->
       <div id="reportSheet-yield" class="hidden">
+        <!-- 機能④：米価・時給シミュレーションバー（印刷時は非表示） -->
+        <div class="no-print mb-4 p-3 rounded-xl bg-slate-100 border border-slate-300 flex flex-wrap items-center justify-between gap-3">
+          <div class="text-xs font-bold text-slate-700">
+            💴 圃場別「10aあたり原価・粗利・採算性」自動試算パラメータ（変更すると即時再計算されます）：
+          </div>
+          <div class="flex flex-wrap items-center gap-3 text-xs">
+            <label class="flex items-center gap-1.5 font-bold text-slate-800">
+              <span>想定米価（1俵60kg）:</span>
+              <input type="number" id="simRicePriceInput" value="18500" step="500" onchange="updateCostSettingsFromUi()" class="w-24 px-2 py-1 rounded bg-white border border-slate-300 text-right font-bold text-slate-900">
+              <span>円</span>
+            </label>
+            <label class="flex items-center gap-1.5 font-bold text-slate-800">
+              <span>労務時給単価:</span>
+              <input type="number" id="simHourlyWageInput" value="1500" step="100" onchange="updateCostSettingsFromUi()" class="w-20 px-2 py-1 rounded bg-white border border-slate-300 text-right font-bold text-slate-900">
+              <span>円/h</span>
+            </label>
+          </div>
+        </div>
+
         <div class="flex justify-between items-start border-b-2 border-slate-800 pb-3 mb-4">
           <div>
-            <div class="text-xs font-bold text-slate-600">経営改善・GAP審査・環境保全型農業交付金対応 A4標準様式</div>
-            <h2 class="text-xl font-bold text-slate-900 mt-0.5">令和8年度 圃場別「反収（収量）× 投入NPK成分 × 労働時間」総括分析表</h2>
+            <div class="text-xs font-bold text-slate-600">経営改善・GAP審査・環境保全型農業交付金・採算分析対応 A4標準様式</div>
+            <h2 class="text-xl font-bold text-slate-900 mt-0.5">令和8年度 圃場別「反収 × 投入NPK × 労働時間 × 10a原価・粗利」総括分析表</h2>
           </div>
           <div class="text-right text-xs text-slate-700">
-            <div><span class="font-bold">自動集計：</span>面積按分された施肥・作業時間・収穫データより算出</div>
+            <div><span class="font-bold">自動集計：</span>面積按分された施肥・防除・作業時間・機械費・収穫データより算出</div>
           </div>
         </div>
         <div class="overflow-x-auto">
@@ -728,15 +793,15 @@
             <thead>
               <tr class="bg-slate-100">
                 <th class="border border-slate-400 p-2 text-left">圃場名（地番）</th>
-                <th class="border border-slate-400 p-2 text-left">作付品種</th>
-                <th class="border border-slate-400 p-2 text-right">面積(a)</th>
-                <th class="border border-slate-400 p-2 text-right">累計労働時間</th>
-                <th class="border border-slate-400 p-2 text-right">累計N(kg/10a)</th>
-                <th class="border border-slate-400 p-2 text-right">累計P(kg/10a)</th>
-                <th class="border border-slate-400 p-2 text-right">累計K(kg/10a)</th>
-                <th class="border border-slate-400 p-2 text-right">収穫量(kg)</th>
-                <th class="border border-slate-400 p-2 text-right">10a反収(俵)</th>
-                <th class="border border-slate-400 p-2 text-center">検査等級</th>
+                <th class="border border-slate-400 p-2 text-left">品種・面積</th>
+                <th class="border border-slate-400 p-2 text-right">労働時間</th>
+                <th class="border border-slate-400 p-2 text-right">累計NPK(10a)</th>
+                <th class="border border-slate-400 p-2 text-right">収穫量(反収)</th>
+                <th class="border border-slate-400 p-2 text-right">資材費(肥料+農薬)</th>
+                <th class="border border-slate-400 p-2 text-right">労務・機械費</th>
+                <th class="border border-slate-400 p-2 text-right">見込売上</th>
+                <th class="border border-slate-400 p-2 text-right">粗利益(10a粗利)</th>
+                <th class="border border-slate-400 p-2 text-center">採算判定</th>
               </tr>
             </thead>
             <tbody id="yieldReportBody"></tbody>
@@ -909,12 +974,16 @@
         <p class="text-xs text-[var(--muted-foreground)] mb-4">
           現在のすべてのデータ（圃場・資材在庫・機械アワー・作業日誌）はブラウザの <code class="px-1 py-0.5 rounded bg-[var(--secondary)]">localStorage</code> に自動保存されています。PC故障や機種変更時もJSONファイルで丸ごとバックアップ・復元できます。
         </p>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          <button onclick="exportFullBackupJson()" class="py-2.5 px-4 rounded-xl border border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] font-bold text-xs hover:opacity-90">
-            📥 全データをJSONバックアップ保存
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <button onclick="exportFullBackupJson()" class="py-2.5 px-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] font-bold text-xs hover:opacity-90">
+            📥 JSONバックアップ保存
           </button>
-          <button onclick="resetToDefaultData()" class="py-2.5 px-4 rounded-xl border border-red-500/40 bg-red-500/10 text-red-600 font-bold text-xs hover:bg-red-500/20">
-            🔄 初期サンプルデータにリセット
+          <input type="file" id="backupRestoreInput" accept=".json" onchange="importFullBackupJson(event)" class="hidden">
+          <button onclick="document.getElementById('backupRestoreInput').click()" class="py-2.5 px-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-600 font-bold text-xs hover:bg-emerald-500/20">
+            📤 JSONバックアップから復元
+          </button>
+          <button onclick="resetToDefaultData()" class="py-2.5 px-3 rounded-xl border border-red-500/40 bg-red-500/10 text-red-600 font-bold text-xs hover:bg-red-500/20">
+            🔄 初期サンプルにリセット
           </button>
         </div>
       </div>

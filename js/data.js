@@ -9,30 +9,34 @@ const STORAGE_KEY = 'rakuraku_einou_next_pwa_state_v1';
 // 初期デフォルトデータ定義
 const DEFAULT_STATE = {
   fieldsData: [
-    { id: 'F01', name: '① 本場1号', lot: '大字下新田 102-1', group: 'gps', area: 30, crop: 'コシヒカリ (BL)', harvest: '2026/09/20', stage: '施肥済', lat: 37.9161, lng: 139.0364, doneCats: ['耕起', '草刈り', '施肥'], nPer10a: 2.8, pPer10a: 2.8, kPer10a: 2.8, pestCount: { P01: 1, P02: 1, P03: 2 } },
-    { id: 'F02', name: '② 本場2号', lot: '大字下新田 102-2', group: 'gps', area: 20, crop: 'コシヒカリ (BL)', harvest: '2026/09/20', stage: '施肥済', lat: 37.9163, lng: 139.0368, doneCats: ['耕起', '草刈り', '施肥'], nPer10a: 2.8, pPer10a: 2.8, kPer10a: 2.8, pestCount: { P01: 1, P02: 0, P03: 1 } },
-    { id: 'F03', name: '③ 本場3号・大町', lot: '大字下新田 105', group: 'gps', area: 50, crop: 'コシヒカリ (BL)', harvest: '2026/09/20', stage: '施肥済', lat: 37.9158, lng: 139.0365, doneCats: ['耕起', '草刈り', '施肥'], nPer10a: 2.8, pPer10a: 2.8, kPer10a: 2.8, pestCount: { P01: 1, P02: 1, P03: 2 } },
-    { id: 'F04', name: '④ 川向4号', lot: '大字川向 44-1', group: 'river', area: 35, crop: 'つきあかり', harvest: '2026/09/10', stage: '耕起済', lat: 37.9145, lng: 139.0355, doneCats: ['耕起', '草刈り'], nPer10a: 1.4, pPer10a: 1.4, kPer10a: 1.4, pestCount: { P01: 0, P02: 0, P03: 0 } },
-    { id: 'F05', name: '⑤ 上山田A(飛び地)', lot: '上山田字沢 88-1', group: 'yama', area: 15, crop: 'コシヒカリ (BL)', harvest: '2026/09/28', stage: '未着手', lat: 37.9210, lng: 139.0480, doneCats: [], nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: { P01: 0, P02: 0, P03: 0 } },
-    { id: 'F06', name: '⑥ 上山田B(飛び地)', lot: '上山田字沢 89-3', group: 'yama', area: 18, crop: 'コシヒカリ (BL)', harvest: '2026/09/28', stage: '未着手', lat: 37.9215, lng: 139.0488, doneCats: [], nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: { P01: 0, P02: 0, P03: 0 } },
-    { id: 'F07', name: '⑦ 上山田棚田C', lot: '上山田字峯 12-1', group: 'yama', area: 22, crop: 'コシヒカリ (BL)', harvest: '2026/09/28', stage: '草刈り済', lat: 37.9202, lng: 139.0475, doneCats: ['草刈り'], nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: { P01: 0, P02: 0, P03: 0 } }
+    { id: 'F01', name: '① 本場1号', lot: '大字下新田 102-1', group: 'gps', area: 30, crop: 'コシヒカリ (BL)', headingDate: '2026/08/08', targetTempC: 1000, dailyMeanTempC: 25.5, harvest: '2026/09/20', stage: '施肥済', lat: 37.9161, lng: 139.0364, doneCats: ['耕起', '草刈り', '施肥'], nPer10a: 2.8, pPer10a: 2.8, kPer10a: 2.8, pestCount: { P01: 1, P02: 1, P03: 2 }, alerts: [] },
+    { id: 'F02', name: '② 本場2号', lot: '大字下新田 102-2', group: 'gps', area: 20, crop: 'コシヒカリ (BL)', headingDate: '2026/08/08', targetTempC: 1000, dailyMeanTempC: 25.5, harvest: '2026/09/20', stage: '施肥済', lat: 37.9163, lng: 139.0368, doneCats: ['耕起', '草刈り', '施肥'], nPer10a: 2.8, pPer10a: 2.8, kPer10a: 2.8, pestCount: { P01: 1, P02: 0, P03: 1 }, alerts: [] },
+    { id: 'F03', name: '③ 本場3号・大町', lot: '大字下新田 105', group: 'gps', area: 50, crop: 'コシヒカリ (BL)', headingDate: '2026/08/08', targetTempC: 1000, dailyMeanTempC: 25.5, harvest: '2026/09/20', stage: '施肥済', lat: 37.9158, lng: 139.0365, doneCats: ['耕起', '草刈り', '施肥'], nPer10a: 2.8, pPer10a: 2.8, kPer10a: 2.8, pestCount: { P01: 1, P02: 1, P03: 2 }, alerts: [] },
+    { id: 'F04', name: '④ 川向4号', lot: '大字川向 44-1', group: 'river', area: 35, crop: 'つきあかり', headingDate: '2026/07/30', targetTempC: 950, dailyMeanTempC: 25.8, harvest: '2026/09/10', stage: '耕起済', lat: 37.9145, lng: 139.0355, doneCats: ['耕起', '草刈り'], nPer10a: 1.4, pPer10a: 1.4, kPer10a: 1.4, pestCount: { P01: 0, P02: 0, P03: 0 }, alerts: [] },
+    { id: 'F05', name: '⑤ 上山田A(飛び地)', lot: '上山田字沢 88-1', group: 'yama', area: 15, crop: 'コシヒカリ (BL)', headingDate: '2026/08/14', targetTempC: 1000, dailyMeanTempC: 23.2, harvest: '2026/09/28', stage: '未着手', lat: 37.9210, lng: 139.0480, doneCats: [], nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: { P01: 0, P02: 0, P03: 0 }, alerts: [{ id: 'AL-INIT-1', text: '🐗 獣害（イノシシ畦畔掘り）', tag: '🐗 獣害（イノシシ畦畔掘り）', date: '2026/08/03' }] },
+    { id: 'F06', name: '⑥ 上山田B(飛び地)', lot: '上山田字沢 89-3', group: 'yama', area: 18, crop: 'コシヒカリ (BL)', headingDate: '2026/08/14', targetTempC: 1000, dailyMeanTempC: 23.2, harvest: '2026/09/28', stage: '未着手', lat: 37.9215, lng: 139.0488, doneCats: [], nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: { P01: 0, P02: 0, P03: 0 }, alerts: [] },
+    { id: 'F07', name: '⑦ 上山田棚田C', lot: '上山田字峯 12-1', group: 'yama', area: 22, crop: 'コシヒカリ (BL)', headingDate: '2026/08/14', targetTempC: 1000, dailyMeanTempC: 23.2, harvest: '2026/09/28', stage: '草刈り済', lat: 37.9202, lng: 139.0475, doneCats: ['草刈り'], nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: { P01: 0, P02: 0, P03: 0 }, alerts: [{ id: 'AL-INIT-2', text: '💧 水口・畦畔水漏れ確認', tag: '💧 水口・畦畔水漏れ確認', date: '2026/08/04' }] }
   ],
   fertilizers: {
-    F01: { id: 'F01', name: 'くみあい苦土入り複合オール14', unitKg: 20, n: 14, p: 14, k: 14, stock: 45, minStock: 15 },
-    F02: { id: 'F02', name: '水稲一発基肥コートL80', unitKg: 20, n: 24, p: 10, k: 12, stock: 30, minStock: 10 },
-    F03: { id: 'F03', name: 'NK化成2号（穂肥用）', unitKg: 20, n: 17, p: 0, k: 17, stock: 12, minStock: 15 }
+    F01: { id: 'F01', name: 'くみあい苦土入り複合オール14', unitKg: 20, n: 14, p: 14, k: 14, stock: 45, minStock: 15, priceYen: 2450 },
+    F02: { id: 'F02', name: '水稲一発基肥コートL80', unitKg: 20, n: 24, p: 10, k: 12, stock: 30, minStock: 10, priceYen: 3800 },
+    F03: { id: 'F03', name: 'NK化成2号（穂肥用）', unitKg: 20, n: 17, p: 0, k: 17, stock: 12, minStock: 15, priceYen: 2600 }
   },
   pesticides: {
-    P01: { id: 'P01', name: 'アミスターフロアブル', regNo: '第20142号', activeIngredient: 'アゾキシストロビン', maxUse: 2, phiDays: 14, stock: 18, unit: '本(500mL)' },
-    P02: { id: 'P02', name: 'スタークル液剤10', regNo: '第21993号', activeIngredient: 'ジノテフラン', maxUse: 3, phiDays: 7, stock: 24, unit: '本(500mL)' },
-    P03: { id: 'P03', name: 'ビームゾル', regNo: '第14201号', activeIngredient: 'トリシクラゾール', maxUse: 2, phiDays: 21, stock: 6, unit: '本(500mL)' },
-    P04: { id: 'P04', name: 'スタークル粒剤（同一成分別剤）', regNo: '第21992号', activeIngredient: 'ジノテフラン', maxUse: 3, phiDays: 14, stock: 15, unit: '袋(3kg)' }
+    P01: { id: 'P01', name: 'アミスターフロアブル', regNo: '第20142号', activeIngredient: 'アゾキシストロビン', maxUse: 2, phiDays: 14, stock: 18, unit: '本(500mL)', priceYen: 3400 },
+    P02: { id: 'P02', name: 'スタークル液剤10', regNo: '第21993号', activeIngredient: 'ジノテフラン', maxUse: 3, phiDays: 7, stock: 24, unit: '本(500mL)', priceYen: 2900 },
+    P03: { id: 'P03', name: 'ビームゾル', regNo: '第14201号', activeIngredient: 'トリシクラゾール', maxUse: 2, phiDays: 21, stock: 6, unit: '本(500mL)', priceYen: 2800 },
+    P04: { id: 'P04', name: 'スタークル粒剤（同一成分別剤）', regNo: '第21992号', activeIngredient: 'ジノテフラン', maxUse: 3, phiDays: 14, stock: 15, unit: '袋(3kg)', priceYen: 2500 }
   },
   machines: {
-    M01: { id: 'M01', name: 'ヤンマー トラクター YT357', cat: 'トラクター', currentHour: 248.0, nextMaint: 300.0, interval: 100.0 },
-    M02: { id: 'M02', name: 'クボタ 乗用草刈機 RM983', cat: '乗用モア', currentHour: 96.5, nextMaint: 100.0, interval: 50.0 },
-    M03: { id: 'M03', name: '農業用ドローン DJI Agras T30', cat: 'ドローン', currentHour: 42.0, nextMaint: 60.0, interval: 30.0 },
-    M04: { id: 'M04', name: 'クボタ 田植機 NW8S', cat: '田植機', currentHour: 115.0, nextMaint: 150.0, interval: 50.0 }
+    M01: { id: 'M01', name: 'ヤンマー トラクター YT357', cat: 'トラクター', currentHour: 248.0, nextMaint: 300.0, interval: 100.0, hourlyCostYen: 2800 },
+    M02: { id: 'M02', name: 'クボタ 乗用草刈機 RM983', cat: '乗用モア', currentHour: 96.5, nextMaint: 100.0, interval: 50.0, hourlyCostYen: 1500 },
+    M03: { id: 'M03', name: '農業用ドローン DJI Agras T30', cat: 'ドローン', currentHour: 42.0, nextMaint: 60.0, interval: 30.0, hourlyCostYen: 3500 },
+    M04: { id: 'M04', name: 'クボタ 田植機 NW8S', cat: '田植機', currentHour: 115.0, nextMaint: 150.0, interval: 50.0, hourlyCostYen: 2400 }
+  },
+  costSettings: {
+    hourlyWageYen: 1500,
+    ricePricePerTawaraYen: 18500
   },
   workLogs: [
     {
@@ -130,6 +134,7 @@ let fieldsData = [];
 let fertilizers = {};
 let pesticides = {};
 let machines = {};
+let costSettings = { hourlyWageYen: 1500, ricePricePerTawaraYen: 18500 };
 let workLogs = [];
 let gasWebhookUrl = '';
 
@@ -226,38 +231,215 @@ function getLogPesticideIds(log) {
 }
 
 // =========================================================================
+// ① 水稲「出穂後積算温度（1,000℃）」＆ 刈取適期予測エンジン
+// =========================================================================
+function calcAccumulatedTempStats(field, refDateStr) {
+  const headingStr = field.headingDate || '2026/08/08';
+  const targetC = Number(field.targetTempC) || (String(field.crop || '').includes('つきあかり') ? 950 : 1000);
+  const dailyMean = Number(field.dailyMeanTempC) || (field.group === 'yama' ? 23.2 : 25.5);
+
+  const headMs = new Date(String(headingStr).replace(/\//g, '-')).setHours(0, 0, 0, 0);
+  // 基準日は指定日（または収穫予定日前の9月15日基準で登熟進捗をシミュレーション）
+  const baseStr = refDateStr || '2026-09-12';
+  const baseMs = new Date(String(baseStr).replace(/\//g, '-')).setHours(0, 0, 0, 0);
+
+  let elapsedDays = 0;
+  if (!isNaN(headMs) && !isNaN(baseMs)) {
+    elapsedDays = Math.max(0, Math.floor((baseMs - headMs) / (1000 * 60 * 60 * 24)));
+  }
+
+  const accumulatedC = Math.round(elapsedDays * dailyMean);
+  const pct = Math.min(100, Math.round((accumulatedC / targetC) * 100));
+  const remainC = Math.max(0, targetC - accumulatedC);
+  const remainDays = Math.ceil(remainC / dailyMean);
+
+  const totalDaysNeeded = Math.ceil(targetC / dailyMean);
+  let predictedDateStr = field.harvest || '2026/09/20';
+  if (!isNaN(headMs)) {
+    const predDate = new Date(headMs + totalDaysNeeded * 24 * 60 * 60 * 1000);
+    predictedDateStr = `${predDate.getFullYear()}/${String(predDate.getMonth() + 1).padStart(2, '0')}/${String(predDate.getDate()).padStart(2, '0')}`;
+  }
+
+  let statusLabel = '登熟中';
+  let statusColor = '#f59e0b'; // amber
+  if (accumulatedC >= targetC + 100) {
+    statusLabel = '刈遅れ注意';
+    statusColor = '#ef4444'; // red
+  } else if (accumulatedC >= targetC - 50) {
+    statusLabel = '刈取適期';
+    statusColor = '#10b981'; // emerald
+  } else if (accumulatedC < 400) {
+    statusLabel = '出穂・登熟初期';
+    statusColor = '#0284c7'; // sky
+  }
+
+  return {
+    headingDate: headingStr,
+    targetC,
+    dailyMean,
+    meanTemp: dailyMean,
+    elapsedDays,
+    accumulatedC,
+    pct,
+    progressPct: pct,
+    remainC,
+    remainDays,
+    remainingDays: remainDays,
+    predictedDateStr,
+    predictedHarvestDate: predictedDateStr,
+    statusLabel,
+    statusColor
+  };
+}
+
+// =========================================================================
+// ④ 圃場別「原価（資材・労務・機械）・売上・粗利益」自動試算エンジン
+// =========================================================================
+function calcFieldProfitability(field) {
+  const wage = Number(costSettings.hourlyWageYen) || 1500;
+  const ricePrice = Number(costSettings.ricePricePerTawaraYen) || 18500;
+  const fLogs = workLogs.filter(l => (l.fieldIds || []).includes(field.id));
+
+  let cumHr = 0;
+  let fertCostYen = 0;
+  let pestCostYen = 0;
+  let machineCostYen = 0;
+
+  fLogs.forEach(l => {
+    const ratio = logAreaRatio_(l, field);
+    const allocHr = (Number(l.duration) || 0) * ratio;
+    cumHr += allocHr;
+
+    if (l.machineId && machines[l.machineId]) {
+      const mRate = Number(machines[l.machineId].hourlyCostYen) || 2000;
+      machineCostYen += allocHr * mRate;
+    }
+
+    if (l.type === 'fertilizer') {
+      const fertObj = fertilizers[l.materialId] || Object.values(fertilizers)[0];
+      const bagPrice = Number(fertObj?.priceYen) || 2450;
+      const bags = Number(l.inputQty) || ((Number(l.totalKg) || 0) / 20);
+      fertCostYen += bags * bagPrice * ratio;
+    } else if (l.type === 'pesticide') {
+      const pids = getLogPesticideIds(l);
+      const bottles = Number(l.inputQty) || 1;
+      pids.forEach(pid => {
+        const pObj = pesticides[pid];
+        const unitPrice = Number(pObj?.priceYen) || 3000;
+        pestCostYen += bottles * unitPrice * ratio;
+      });
+    }
+  });
+
+  // 初期ベースライン分の施肥・防除がある場合の概算補完
+  const b = field.baseline || {};
+  if ((b.nPer10a || 0) > 0) {
+    fertCostYen += (b.nPer10a / 2.8) * (field.area / 10) * 2450;
+  }
+  Object.entries(b.pestCount || {}).forEach(([pid, cnt]) => {
+    if (cnt > 0) {
+      const pObj = pesticides[pid];
+      pestCostYen += cnt * (field.area / 50) * (Number(pObj?.priceYen) || 3000);
+    }
+  });
+
+  const laborCostYen = Math.round(cumHr * wage);
+  const roundedMachineCostYen = Math.round(machineCostYen);
+  const totalCostYen = Math.round(fertCostYen + pestCostYen + laborCostYen + roundedMachineCostYen);
+
+  const defaultYieldTawara10a = field.yieldTawara10a || (field.nPer10a > 0 ? 9.0 : 8.0);
+  const harvKg = field.harvestKg || Math.round(defaultYieldTawara10a * 60 * (field.area / 10));
+  const totalTawara = harvKg / 60;
+  const revenueYen = Math.round(totalTawara * ricePrice);
+  const profitYen = revenueYen - totalCostYen;
+  const profitPer10aYen = field.area > 0 ? Math.round(profitYen / (field.area / 10)) : 0;
+
+  let rank = 'B (標準)';
+  let rankColor = '#0284c7';
+  if (profitPer10aYen >= 120000) {
+    rank = 'S (高収益)';
+    rankColor = '#059669';
+  } else if (profitPer10aYen >= 95000) {
+    rank = 'A (優良)';
+    rankColor = '#10b981';
+  } else if (profitPer10aYen >= 70000) {
+    rank = 'B (標準)';
+    rankColor = '#0284c7';
+  } else {
+    rank = 'C (要改善)';
+    rankColor = '#d97706';
+  }
+
+  return {
+    cumHr,
+    cumHours: cumHr,
+    fertCostYen: Math.round(fertCostYen),
+    pestCostYen: Math.round(pestCostYen),
+    laborCostYen,
+    machineCostYen: roundedMachineCostYen,
+    laborMachineCostYen: Math.round(laborCostYen + roundedMachineCostYen),
+    totalCostYen,
+    harvKg,
+    defaultYieldTawara10a,
+    yieldTawara10a: defaultYieldTawara10a,
+    revenueYen,
+    grossRevenueYen: revenueYen,
+    profitYen,
+    grossProfitYen: profitYen,
+    profitPer10aYen,
+    rank,
+    profitRank: rank,
+    rankColor
+  };
+}
+
+// =========================================================================
 // LocalStorage 永続化エンジン
 // =========================================================================
+function applyParsedState_(parsed) {
+  const def = JSON.parse(JSON.stringify(DEFAULT_STATE));
+  fieldsData = Array.isArray(parsed.fieldsData) ? parsed.fieldsData : def.fieldsData;
+  // 既存データに headingDate / alerts 等がない場合はデフォルト値から補完
+  fieldsData.forEach(f => {
+    const defField = def.fieldsData.find(df => df.id === f.id);
+    if (!f.headingDate) f.headingDate = defField?.headingDate || (f.group === 'yama' ? '2026/08/14' : '2026/08/08');
+    if (!f.targetTempC) f.targetTempC = defField?.targetTempC || (String(f.crop || '').includes('つきあかり') ? 950 : 1000);
+    if (!f.dailyMeanTempC) f.dailyMeanTempC = defField?.dailyMeanTempC || (f.group === 'yama' ? 23.2 : 25.5);
+    if (!Array.isArray(f.alerts)) f.alerts = defField?.alerts ? JSON.parse(JSON.stringify(defField.alerts)) : [];
+  });
+
+  fertilizers = { ...def.fertilizers, ...(parsed.fertilizers || {}) };
+  Object.keys(fertilizers).forEach(fid => {
+    if (!fertilizers[fid].priceYen) fertilizers[fid].priceYen = def.fertilizers[fid]?.priceYen || 2500;
+  });
+
+  pesticides = { ...def.pesticides, ...(parsed.pesticides || {}) };
+  Object.keys(pesticides).forEach(pid => {
+    if (!pesticides[pid].activeIngredient && def.pesticides[pid]) {
+      pesticides[pid].activeIngredient = def.pesticides[pid].activeIngredient;
+    }
+    if (!pesticides[pid].priceYen) pesticides[pid].priceYen = def.pesticides[pid]?.priceYen || 3000;
+  });
+
+  machines = { ...def.machines, ...(parsed.machines || {}) };
+  Object.keys(machines).forEach(mid => {
+    if (!machines[mid].hourlyCostYen) machines[mid].hourlyCostYen = def.machines[mid]?.hourlyCostYen || 2500;
+  });
+
+  costSettings = { ...def.costSettings, ...(parsed.costSettings || {}) };
+  workLogs = Array.isArray(parsed.workLogs) ? parsed.workLogs : def.workLogs;
+  gasWebhookUrl = parsed.gasWebhookUrl || '';
+}
+
 function loadStateFromStorage() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw);
-      fieldsData = parsed.fieldsData || JSON.parse(JSON.stringify(DEFAULT_STATE.fieldsData));
-      fertilizers = parsed.fertilizers || JSON.parse(JSON.stringify(DEFAULT_STATE.fertilizers));
-      pesticides = {
-        ...JSON.parse(JSON.stringify(DEFAULT_STATE.pesticides)),
-        ...(parsed.pesticides || {})
-      };
-      // 既存保存データに activeIngredient が欠けている場合はデフォルトから補完
-      Object.keys(pesticides).forEach(pid => {
-        if (!pesticides[pid].activeIngredient && DEFAULT_STATE.pesticides[pid]) {
-          pesticides[pid].activeIngredient = DEFAULT_STATE.pesticides[pid].activeIngredient;
-        }
-      });
-      machines = parsed.machines || JSON.parse(JSON.stringify(DEFAULT_STATE.machines));
-      workLogs = parsed.workLogs || JSON.parse(JSON.stringify(DEFAULT_STATE.workLogs));
-      gasWebhookUrl = parsed.gasWebhookUrl || '';
+      applyParsedState_(JSON.parse(raw));
       return;
     }
   } catch (e) {}
-  const def = JSON.parse(JSON.stringify(DEFAULT_STATE));
-  fieldsData = def.fieldsData;
-  fertilizers = def.fertilizers;
-  pesticides = def.pesticides;
-  machines = def.machines;
-  workLogs = def.workLogs;
-  gasWebhookUrl = def.gasWebhookUrl;
+  applyParsedState_(JSON.parse(JSON.stringify(DEFAULT_STATE)));
 }
 
 function saveStateToStorage() {
@@ -267,6 +449,7 @@ function saveStateToStorage() {
       fertilizers,
       pesticides,
       machines,
+      costSettings,
       workLogs,
       gasWebhookUrl
     }));
@@ -361,7 +544,6 @@ function recalculateFieldStats() {
       if (l.cat) stage = `${l.cat}済`;
     });
 
-    // 有効成分（activeIngredient）単位での累積使用回数を集計
     const ingredientCount = {};
     Object.entries(pestCount).forEach(([pid, count]) => {
       if (!count || count <= 0) return;

@@ -35,6 +35,12 @@ function initApp() {
   ensureFieldBaselines();
   recalculateFieldStats();
   document.getElementById('gasWebhookUrl').value = gasWebhookUrl;
+  if (document.getElementById('simRicePriceInput') && typeof costSettings === 'object') {
+    document.getElementById('simRicePriceInput').value = costSettings.ricePricePerTawaraYen || 18500;
+  }
+  if (document.getElementById('simHourlyWageInput') && typeof costSettings === 'object') {
+    document.getElementById('simHourlyWageInput').value = costSettings.hourlyWageYen || 1500;
+  }
 
   // 帳票出力日を本日の日付で動的初期化
   const now = new Date();
@@ -221,11 +227,13 @@ function renderInputFieldGrid() {
       ? 'border-2 border-emerald-600 bg-emerald-500/15 text-[var(--foreground)] shadow-sm'
       : 'border border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] hover:border-emerald-500/50';
     const checkIcon = isSel ? '☑️' : '⬜';
+    const alertCnt = Array.isArray(f.alerts) ? f.alerts.length : 0;
+    const alertBadge = alertCnt > 0 ? `<span class="text-xs text-amber-600 font-bold ml-1" title="見回りアラート ${alertCnt}件">⚠️${alertCnt}</span>` : '';
     const distBadge = f._distM !== undefined ? `<span class="text-xs text-sky-600 font-semibold ml-1">(${f._distM}m)</span>` : '';
     return `
       <button onclick="toggleFieldSelection('${escapeHtml(f.id)}')" class="p-2.5 rounded-xl text-left transition ${activeCls}">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-bold text-[var(--foreground)] truncate">${checkIcon} ${escapeHtml(f.name)}</span>
+          <span class="text-xs font-bold text-[var(--foreground)] truncate">${checkIcon} ${escapeHtml(f.name)}${alertBadge}</span>
           <span class="text-xs font-bold text-emerald-600 shrink-0">${escapeHtml(f.area)}a</span>
         </div>
         <div class="text-xs text-[var(--muted-foreground)] mt-0.5 truncate">${escapeHtml(f.lot)} ${distBadge}</div>
@@ -810,8 +818,9 @@ function submitUnifiedWorkLog() {
 // =========================================================================
 function setHeatmapLayer(layer) {
   currentHeatmapLayer = layer;
-  ['all', '耕起', '草刈り', '施肥', '防除'].forEach(l => {
+  ['all', '耕起', '草刈り', '施肥', '防除', 'temp'].forEach(l => {
     const btn = document.getElementById('heatBtn-' + l);
+    if (!btn) return;
     if (l === layer) {
       btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white';
     } else {
@@ -825,7 +834,11 @@ function getFieldHeatmapStyle_(f) {
   let color = '#64748b';
   let label = f.stage;
 
-  if (currentHeatmapLayer === 'all') {
+  if (currentHeatmapLayer === 'temp') {
+    const tStats = calcAccumulatedTempStats(f);
+    color = tStats.statusColor;
+    label = `${tStats.accumulatedC}℃ (${tStats.statusLabel})`;
+  } else if (currentHeatmapLayer === 'all') {
     if (f.doneCats.length >= 3) color = '#10b981';
     else if (f.doneCats.length >= 1) color = '#f59e0b';
   } else {
@@ -836,6 +849,9 @@ function getFieldHeatmapStyle_(f) {
       color = '#64748b';
       label = `${currentHeatmapLayer} 未実施`;
     }
+  }
+  if (Array.isArray(f.alerts) && f.alerts.length > 0) {
+    label = `⚠️ ${label}`;
   }
   return { color, label };
 }
@@ -928,9 +944,10 @@ function renderGisHeatmap() {
   if (pillList) {
     pillList.innerHTML = fieldsData.map(f => {
       const isCur = f.id === currentInspectedFieldId;
+      const alertMark = Array.isArray(f.alerts) && f.alerts.length > 0 ? ` ⚠️${f.alerts.length}` : '';
       return `<button onclick="inspectField('${escapeHtml(f.id)}')" class="px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
         isCur ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-[var(--background)] text-[var(--foreground)] border-[var(--border)]'
-      }">${escapeHtml(f.name)} (${escapeHtml(f.area)}a)</button>`;
+      }">${escapeHtml(f.name)}${alertMark} (${escapeHtml(f.area)}a)</button>`;
     }).join('');
   }
 }
@@ -944,6 +961,62 @@ function inspectField(fieldId) {
   document.getElementById('karteArea').textContent = `${f.area} a (${(f.area / 10).toFixed(1)} 反)`;
   document.getElementById('karteCrop').textContent = f.crop;
   document.getElementById('karteHarvest').textContent = f.harvest;
+
+  // 機能①：出穂後積算温度（1,000℃）＆刈取適期予測
+  const tStats = calcAccumulatedTempStats(f);
+  const headingInput = document.getElementById('karteHeadingDateInput');
+  if (headingInput) {
+    headingInput.value = String(tStats.headingDate || '2026/08/05').replace(/\//g, '-');
+  }
+  const tempBadge = document.getElementById('karteTempBadge');
+  if (tempBadge) {
+    tempBadge.textContent = tStats.statusLabel;
+    tempBadge.style.backgroundColor = `${tStats.statusColor}22`;
+    tempBadge.style.color = tStats.statusColor;
+  }
+  const tempText = document.getElementById('karteTempText');
+  if (tempText) {
+    tempText.textContent = `出穂後${tStats.elapsedDays}日 ／ ${tStats.accumulatedC}℃ (目標 ${tStats.targetC}℃)`;
+  }
+  const tempBar = document.getElementById('karteTempBar');
+  if (tempBar) {
+    tempBar.style.width = `${tStats.progressPct}%`;
+    tempBar.style.backgroundColor = tStats.statusColor;
+  }
+  const predText = document.getElementById('kartePredictedHarvestText');
+  if (predText) {
+    predText.textContent = tStats.remainingDays > 0
+      ? `🌾 1,000℃到達（刈取適期）予測: ${tStats.predictedHarvestDate}（あと約 ${tStats.remainingDays} 日 ／ 日平均 ${tStats.meanTemp}℃換算）`
+      : `🌾 刈取適期（${tStats.targetC}℃）に到達しています（予測適期日: ${tStats.predictedHarvestDate}）`;
+  }
+
+  // 機能③：現地見回りメモ＆被害・生育アラート
+  if (!Array.isArray(f.alerts)) f.alerts = [];
+  const alertCntBadge = document.getElementById('karteAlertCountBadge');
+  if (alertCntBadge) {
+    alertCntBadge.textContent = f.alerts.length > 0 ? `⚠️ 未解決 ${f.alerts.length}件` : '異常なし (0件)';
+    alertCntBadge.className = f.alerts.length > 0
+      ? 'px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-600 border border-amber-500/40'
+      : 'px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-600';
+  }
+  const alertListEl = document.getElementById('karteAlertList');
+  if (alertListEl) {
+    if (f.alerts.length === 0) {
+      alertListEl.innerHTML = `<div class="p-2.5 rounded-xl bg-[var(--card)] border border-[var(--border)] text-xs text-[var(--muted-foreground)]">現在ピン留めされた被害・見回りアラートはありません。</div>`;
+    } else {
+      alertListEl.innerHTML = f.alerts.map(a => `
+        <div class="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/40 flex items-center justify-between gap-2 text-xs">
+          <div>
+            <span class="font-bold text-amber-700">${escapeHtml(a.text || a.tag || '')}</span>
+            <span class="text-[var(--muted-foreground)] ml-1.5">(${escapeHtml(a.date || '')})</span>
+          </div>
+          <button onclick="resolveFieldAlert('${escapeHtml(f.id)}', '${escapeHtml(a.id)}')" class="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition shrink-0">
+            ✅ 解決済
+          </button>
+        </div>
+      `).join('');
+    }
+  }
 
   const totalN = (f.nPer10a * (f.area / 10)).toFixed(1);
   const totalP = (f.pPer10a * (f.area / 10)).toFixed(1);
@@ -989,6 +1062,48 @@ function jumpToInputWithField() {
   renderInputFieldGrid();
   recalculatePreview();
   switchMainTab('input');
+}
+
+function updateFieldHeadingDate(newDateVal) {
+  const f = fieldsData.find(item => item.id === currentInspectedFieldId);
+  if (!f || !newDateVal) return;
+  f.headingDate = newDateVal.replace(/-/g, '/');
+  const tStats = calcAccumulatedTempStats(f);
+  f.harvest = tStats.predictedHarvestDate;
+  saveStateToStorage();
+  refreshAllViews();
+  showToast(`🌡️ ${f.name} の出穂日を ${f.headingDate} に更新しました`, `1,000℃到達（刈取適期）予測日が ${tStats.predictedHarvestDate} に自動再計算されました。`);
+}
+
+function addFieldAlert() {
+  const f = fieldsData.find(item => item.id === currentInspectedFieldId);
+  if (!f) return;
+  if (!Array.isArray(f.alerts)) f.alerts = [];
+  const preset = document.getElementById('karteAlertPresetSelect')?.value || '⚠️ 現地確認メモ';
+  const custom = (document.getElementById('karteAlertCustomInput')?.value || '').trim();
+  const fullText = custom ? `${preset}（${custom}）` : preset;
+  const newAlert = {
+    id: 'AL-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5),
+    date: getTodayIsoDate().replace(/-/g, '/'),
+    text: fullText
+  };
+  f.alerts.unshift(newAlert);
+  if (document.getElementById('karteAlertCustomInput')) {
+    document.getElementById('karteAlertCustomInput').value = '';
+  }
+  saveStateToStorage();
+  refreshAllViews();
+  showToast(`📸 ${f.name} に見回りアラートをピン留めしました`, `${fullText}（GISマップと圃場タイルに⚠️マークを表示）`);
+}
+
+function resolveFieldAlert(fieldId, alertId) {
+  const f = fieldsData.find(item => item.id === fieldId);
+  if (!f || !Array.isArray(f.alerts)) return;
+  const target = f.alerts.find(a => a.id === alertId);
+  f.alerts = f.alerts.filter(a => a.id !== alertId);
+  saveStateToStorage();
+  refreshAllViews();
+  showToast(`✅ ${f.name} のアラートを解決済にしました`, target ? target.text : '');
 }
 
 // =========================================================================
@@ -1327,28 +1442,101 @@ function renderReportsTab() {
 
   const yieldBody = document.getElementById('yieldReportBody');
   if (yieldBody) {
-    yieldBody.innerHTML = fieldsData.map(f => {
-      const fLogs = workLogs.filter(l => l.fieldIds.includes(f.id));
-      const cumHr = fLogs.reduce((acc, l) => acc + (l.duration * (f.area / (l.totalArea || f.area))), 0);
-      const defaultYieldTawara = f.yieldTawara10a || (f.nPer10a > 0 ? 9.0 : 0);
-      const defaultHarvKg = f.harvestKg || Math.round(defaultYieldTawara * 60 * (f.area / 10));
-      const gradeStr = f.grade || (defaultHarvKg > 0 ? '1等(見込)' : '収穫前');
+    let sumArea = 0;
+    let sumHours = 0;
+    let sumHarvKg = 0;
+    let sumMatCost = 0;
+    let sumLabMachCost = 0;
+    let sumRevenue = 0;
+    let sumGrossProfit = 0;
+
+    const rowsHtml = fieldsData.map(f => {
+      const p = calcFieldProfitability(f);
+      const gradeStr = f.grade || (p.harvKg > 0 ? '1等(見込)' : '収穫前');
+      const matCost = p.fertCostYen + p.pestCostYen;
+      const labMachCost = p.laborCostYen + p.machineCostYen;
+
+      sumArea += f.area;
+      sumHours += p.cumHours;
+      sumHarvKg += p.harvKg;
+      sumMatCost += matCost;
+      sumLabMachCost += labMachCost;
+      sumRevenue += p.grossRevenueYen;
+      sumGrossProfit += p.grossProfitYen;
+
+      const profitCls = p.grossProfitYen >= 0 ? 'text-emerald-700' : 'text-red-600';
       return `
         <tr>
-          <td class="border border-slate-400 p-2 font-bold">${escapeHtml(f.name)} <span class="font-normal text-slate-600">(${escapeHtml(f.lot)})</span></td>
-          <td class="border border-slate-400 p-2">${escapeHtml(f.crop)}</td>
-          <td class="border border-slate-400 p-2 text-right">${escapeHtml(f.area)} a</td>
-          <td class="border border-slate-400 p-2 text-right font-semibold">${cumHr.toFixed(2)} h</td>
-          <td class="border border-slate-400 p-2 text-right font-bold text-emerald-700">${f.nPer10a.toFixed(2)} kg</td>
-          <td class="border border-slate-400 p-2 text-right text-sky-700">${f.pPer10a.toFixed(2)} kg</td>
-          <td class="border border-slate-400 p-2 text-right text-amber-700">${f.kPer10a.toFixed(2)} kg</td>
-          <td class="border border-slate-400 p-2 text-right font-bold">${defaultHarvKg > 0 ? defaultHarvKg.toLocaleString() + ' kg' : '-'}</td>
-          <td class="border border-slate-400 p-2 text-right font-bold text-amber-700">${defaultYieldTawara > 0 ? defaultYieldTawara.toFixed(1) + ' 俵' : '-'}</td>
-          <td class="border border-slate-400 p-2 text-center font-semibold">${escapeHtml(gradeStr)}</td>
+          <td class="border border-slate-400 p-2 font-bold">${escapeHtml(f.name)} <div class="font-normal text-slate-600 text-[11px]">${escapeHtml(f.lot)}</div></td>
+          <td class="border border-slate-400 p-2">${escapeHtml(f.crop)} <div class="font-bold text-slate-700">${escapeHtml(f.area)} a</div></td>
+          <td class="border border-slate-400 p-2 text-right font-semibold">${p.cumHours.toFixed(1)} h</td>
+          <td class="border border-slate-400 p-2 text-right">
+            <span class="font-bold text-emerald-700">N:${f.nPer10a.toFixed(1)}</span>
+            <div class="text-[11px] text-slate-600">P:${f.pPer10a.toFixed(1)} / K:${f.kPer10a.toFixed(1)}</div>
+          </td>
+          <td class="border border-slate-400 p-2 text-right">
+            <span class="font-bold text-amber-700">${p.yieldTawara10a.toFixed(1)} 俵/10a</span>
+            <div class="text-[11px] text-slate-600">${p.harvKg.toLocaleString()} kg (${escapeHtml(gradeStr)})</div>
+          </td>
+          <td class="border border-slate-400 p-2 text-right">
+            <div class="font-semibold">${matCost.toLocaleString()} 円</div>
+            <div class="text-[11px] text-slate-600">肥:${p.fertCostYen.toLocaleString()} / 薬:${p.pestCostYen.toLocaleString()}</div>
+          </td>
+          <td class="border border-slate-400 p-2 text-right">
+            <div class="font-semibold">${labMachCost.toLocaleString()} 円</div>
+            <div class="text-[11px] text-slate-600">労:${p.laborCostYen.toLocaleString()} / 機:${p.machineCostYen.toLocaleString()}</div>
+          </td>
+          <td class="border border-slate-400 p-2 text-right font-bold text-slate-900">
+            ${p.grossRevenueYen.toLocaleString()} 円
+          </td>
+          <td class="border border-slate-400 p-2 text-right">
+            <div class="font-bold ${profitCls}">${p.grossProfitYen >= 0 ? '+' : ''}${p.grossProfitYen.toLocaleString()} 円</div>
+            <div class="text-[11px] font-bold ${profitCls}">(10a: ${p.profitPer10aYen >= 0 ? '+' : ''}${p.profitPer10aYen.toLocaleString()}円)</div>
+          </td>
+          <td class="border border-slate-400 p-2 text-center font-bold" style="color:${p.rankColor}">
+            ${escapeHtml(p.profitRank)}
+          </td>
         </tr>
       `;
     }).join('');
+
+    const avgProfit10a = sumArea > 0 ? Math.round(sumGrossProfit / (sumArea / 10)) : 0;
+    const avgYield10a = sumArea > 0 ? ((sumHarvKg / 60) / (sumArea / 10)).toFixed(1) : '0.0';
+    const summaryRow = `
+      <tr class="bg-emerald-50 font-bold text-slate-900">
+        <td class="border border-slate-400 p-2">【全 ${fieldsData.length} 筆 経営合計・平均】</td>
+        <td class="border border-slate-400 p-2 text-right">計 ${sumArea} a</td>
+        <td class="border border-slate-400 p-2 text-right">${sumHours.toFixed(1)} h</td>
+        <td class="border border-slate-400 p-2 text-right">-</td>
+        <td class="border border-slate-400 p-2 text-right text-amber-800">平均 ${avgYield10a} 俵/10a<div class="text-[11px]">計 ${sumHarvKg.toLocaleString()} kg</div></td>
+        <td class="border border-slate-400 p-2 text-right">${sumMatCost.toLocaleString()} 円</td>
+        <td class="border border-slate-400 p-2 text-right">${sumLabMachCost.toLocaleString()} 円</td>
+        <td class="border border-slate-400 p-2 text-right">${sumRevenue.toLocaleString()} 円</td>
+        <td class="border border-slate-400 p-2 text-right text-emerald-800">
+          ${sumGrossProfit >= 0 ? '+' : ''}${sumGrossProfit.toLocaleString()} 円
+          <div class="text-[11px]">(10a平均: ${avgProfit10a >= 0 ? '+' : ''}${avgProfit10a.toLocaleString()}円)</div>
+        </td>
+        <td class="border border-slate-400 p-2 text-center text-emerald-800">総括</td>
+      </tr>
+    `;
+    yieldBody.innerHTML = rowsHtml + summaryRow;
   }
+}
+
+function updateCostSettingsFromUi() {
+  const riceInput = document.getElementById('simRicePriceInput');
+  const wageInput = document.getElementById('simHourlyWageInput');
+  if (typeof costSettings !== 'object' || !costSettings) {
+    costSettings = { hourlyWageYen: 1500, ricePricePerTawaraYen: 18500 };
+  }
+  if (riceInput) costSettings.ricePricePerTawaraYen = Math.max(1000, Number(riceInput.value) || 18500);
+  if (wageInput) costSettings.hourlyWageYen = Math.max(500, Number(wageInput.value) || 1500);
+  saveStateToStorage();
+  renderReportsTab();
+  showToast(
+    '💴 経営分析パラメータを更新しました',
+    `想定米価: ${costSettings.ricePricePerTawaraYen.toLocaleString()}円/俵 ／ 時給単価: ${costSettings.hourlyWageYen.toLocaleString()}円/h で全圃場の10a粗利を再計算しました。`
+  );
 }
 
 function exportCsvData() {
@@ -1390,6 +1578,9 @@ function addNewFieldMaster() {
     group: 'yama',
     area: area,
     crop: crop,
+    headingDate: '2026/08/10',
+    targetTempC: 1000,
+    dailyMeanTempC: 23.0,
     harvest: '2026/09/25',
     stage: '未着手',
     lat: 37.9212,
@@ -1399,6 +1590,7 @@ function addNewFieldMaster() {
     pPer10a: 0,
     kPer10a: 0,
     pestCount: {},
+    alerts: [],
     baseline: makeEmptyBaseline()
   });
 
@@ -1723,6 +1915,9 @@ function executeMigrationImport() {
         group: 'yama',
         area: item.area,
         crop: item.crop,
+        headingDate: '2026/08/08',
+        targetTempC: 1000,
+        dailyMeanTempC: 24.0,
         harvest: item.harvest || '2026/09/22',
         stage: '未着手',
         lat: item.lat || 37.9165,
@@ -1733,6 +1928,7 @@ function executeMigrationImport() {
         pPer10a: 0,
         kPer10a: 0,
         pestCount: {},
+        alerts: [],
         baseline: makeEmptyBaseline()
       });
     });
@@ -1761,14 +1957,50 @@ function executeMigrationImport() {
 }
 
 function exportFullBackupJson() {
-  const blob = new Blob([JSON.stringify({ fieldsData, fertilizers, pesticides, machines, workLogs }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ fieldsData, fertilizers, pesticides, machines, workLogs, costSettings, gasWebhookUrl }, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = 'rakuraku_einou_backup.json';
   a.click();
   URL.revokeObjectURL(url);
-  showToast('💾 全データのJSONバックアップを保存しました', '機種変更やPC移行時もデータを完全保護できます。');
+  showToast('💾 全データのJSONバックアップを保存しました', '機種変更やPC移行時も「📤 JSONバックアップから復元」で1クリック復元できます。');
+}
+
+function importFullBackupJson(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      if (!parsed || (!Array.isArray(parsed.fieldsData) && !Array.isArray(parsed.workLogs))) {
+        showToast('⚠️ バックアップ形式エラー', '有効な「らくらく営農日誌」JSONバックアップファイルを選択してください。');
+        return;
+      }
+      applyParsedState_(parsed);
+      ensureFieldBaselines();
+      recalculateFieldStats();
+      saveStateToStorage();
+      document.getElementById('gasWebhookUrl').value = gasWebhookUrl || '';
+      if (document.getElementById('simRicePriceInput') && costSettings) {
+        document.getElementById('simRicePriceInput').value = costSettings.ricePricePerTawaraYen || 18500;
+      }
+      if (document.getElementById('simHourlyWageInput') && costSettings) {
+        document.getElementById('simHourlyWageInput').value = costSettings.hourlyWageYen || 1500;
+      }
+      refreshAllViews();
+      showToast(
+        '📤 JSONバックアップから全データを復元しました！',
+        `圃場 ${fieldsData.length}筆 ／ 作業日誌 ${workLogs.length}件のマスタ・在庫・履歴を完全復元しました。`
+      );
+    } catch (err) {
+      showToast('⚠️ JSON読込エラー', 'JSONファイルの解析に失敗しました。ファイル内容を確認してください。');
+    } finally {
+      event.target.value = '';
+    }
+  };
+  reader.readAsText(file, 'UTF-8');
 }
 
 function resetToDefaultData() {
