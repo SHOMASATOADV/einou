@@ -738,6 +738,9 @@ function doPost(e) {
         }
         existingLogIdSet[logId] = true;
         insertedIds.push(logId);
+        const weatherPrefix = item.weather ? `[${item.weather}${item.tempC !== undefined ? ` ${item.tempC}℃` : ''}] ` : '';
+        const memoSuffix = item.memo ? ` ／ 📔${item.memo}` : '';
+        const combinedNotes = `${weatherPrefix}${item.materialSummary || ''}${memoSuffix}`;
         newLogRows.push([
           logId,
           item.date,
@@ -755,7 +758,7 @@ function doPost(e) {
           item.n10a || 0,
           item.p10a || 0,
           item.k10a || 0,
-          item.materialSummary || '',
+          combinedNotes,
           '' // 未按分フラグ → 直後の processPendingLogs_() で自動按分展開
         ]);
       });
