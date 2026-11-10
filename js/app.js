@@ -255,6 +255,9 @@ function renderInputFieldGrid() {
 const _leafletMaps = { input: null, gis: null, picker: null };
 const _leafletLayers = { input: null, gis: null, picker: null };
 let currentGisMapMode = 'svg';
+let isInputMapDrawMode = false;
+let inputDrawVertices = []; // [[lng, lat], ...]
+let pickerDrawVertices = []; // [[lng, lat], ...]
 
 function openFieldInGoogleMaps(fieldId) {
   const f = fieldsData.find(item => item.id === fieldId) || fieldsData[0];
@@ -330,14 +333,32 @@ function renderLeafletFieldMap_(target) {
     _leafletLayers[target] = L.layerGroup().addTo(map);
     _leafletMaps[target] = map;
 
-    if (target === 'picker') {
+    if (target === 'input') {
       map.on('click', (e) => {
-        const lat = Number(e.latlng.lat.toFixed(5));
-        const lng = Number(e.latlng.lng.toFixed(5));
-        if (document.getElementById('newFieldLat')) document.getElementById('newFieldLat').value = lat;
-        if (document.getElementById('newFieldLng')) document.getElementById('newFieldLng').value = lng;
+        if (!isInputMapDrawMode) return;
+        const lat = Number(e.latlng.lat.toFixed(6));
+        const lng = Number(e.latlng.lng.toFixed(6));
+        inputDrawVertices.push([lng, lat]);
+        updateInputDrawStatsUi_();
+        renderLeafletFieldMap_('input');
+      });
+    } else if (target === 'picker') {
+      map.on('click', (e) => {
+        const lat = Number(e.latlng.lat.toFixed(6));
+        const lng = Number(e.latlng.lng.toFixed(6));
+        pickerDrawVertices.push([lng, lat]);
+        if (pickerDrawVertices.length >= 3) {
+          const stats = calcPolygonAreaStats(pickerDrawVertices);
+          if (document.getElementById('newFieldLat')) document.getElementById('newFieldLat').value = stats.centerLat.toFixed(5);
+          if (document.getElementById('newFieldLng')) document.getElementById('newFieldLng').value = stats.centerLng.toFixed(5);
+          if (document.getElementById('newFieldArea')) document.getElementById('newFieldArea').value = stats.areaA;
+          showToast('📐 区画ポリゴンから面積を自動測量しました', `頂点 ${pickerDrawVertices.length}点 ／ 測量面積: 約 ${stats.areaA} a (${stats.areaM2.toLocaleString()} ㎡)`);
+        } else {
+          if (document.getElementById('newFieldLat')) document.getElementById('newFieldLat').value = lat.toFixed(5);
+          if (document.getElementById('newFieldLng')) document.getElementById('newFieldLng').value = lng.toFixed(5);
+          showToast('📍 地図上のクリック位置を取得しました', `緯度: ${lat.toFixed(5)}, 経度: ${lng.toFixed(5)}（3点以上クリックで面積も自動測量します）`);
+        }
         renderLeafletFieldMap_('picker');
-        showToast('📍 地図上のクリック位置を取得しました', `緯度: ${lat}, 経度: ${lng}`);
       });
     }
   }
@@ -386,8 +407,10 @@ function renderLeafletFieldMap_(target) {
       { permanent: true, direction: 'center', className: 'text-xs font-bold' }
     );
 
-    polygon.on('click', () => {
+    polygon.on('click', (ev) => {
       if (target === 'input') {
+        if (isInputMapDrawMode) return;
+        if (ev && L.DomEvent) L.DomEvent.stopPropagation(ev);
         toggleFieldSelection(f.id);
       } else if (target === 'gis') {
         inspectField(f.id);
@@ -398,7 +421,49 @@ function renderLeafletFieldMap_(target) {
     });
   });
 
+  // Tab 1 区画作図モード中のプレビューポリゴン・頂点描画
+  if (target === 'input' && inputDrawVertices.length > 0) {
+    const latLngs = inputDrawVertices.map(pt => [pt[1], pt[0]]);
+    if (latLngs.length >= 2) {
+      L.polygon(latLngs, {
+        color: '#f59e0b',
+        weight: 3,
+        dashArray: '6, 4',
+        fillColor: '#f59e0b',
+        fillOpacity: 0.45
+      }).addTo(layerGroup);
+    }
+    latLngs.forEach((ll, idx) => {
+      L.circleMarker(ll, {
+        radius: 6,
+        color: '#ffffff',
+        weight: 2,
+        fillColor: '#d97706',
+        fillOpacity: 1
+      }).bindTooltip(`角${idx + 1}`, { permanent: true, direction: 'top' }).addTo(layerGroup);
+    });
+  }
+
   if (target === 'picker') {
+    if (pickerDrawVertices.length >= 2) {
+      const pLatLngs = pickerDrawVertices.map(pt => [pt[1], pt[0]]);
+      L.polygon(pLatLngs, {
+        color: '#38bdf8',
+        weight: 3,
+        dashArray: '5, 4',
+        fillColor: '#0284c7',
+        fillOpacity: 0.45
+      }).addTo(layerGroup);
+      pLatLngs.forEach((ll, idx) => {
+        L.circleMarker(ll, {
+          radius: 5,
+          color: '#ffffff',
+          weight: 2,
+          fillColor: '#0284c7',
+          fillOpacity: 1
+        }).bindTooltip(`点${idx + 1}`, { permanent: true, direction: 'top' }).addTo(layerGroup);
+      });
+    }
     const pLat = Number(document.getElementById('newFieldLat')?.value || 37.9212);
     const pLng = Number(document.getElementById('newFieldLng')?.value || 139.0482);
     L.circleMarker([pLat, pLng], {
@@ -411,6 +476,106 @@ function renderLeafletFieldMap_(target) {
   }
 
   setTimeout(() => { map.invalidateSize(); }, 80);
+}
+
+function updateInputDrawStatsUi_() {
+  const cntEl = document.getElementById('drawVertexCountLabel');
+  const areaEl = document.getElementById('drawCalcAreaLabel');
+  if (cntEl) cntEl.textContent = inputDrawVertices.length;
+  if (areaEl) {
+    if (inputDrawVertices.length >= 3) {
+      const stats = calcPolygonAreaStats(inputDrawVertices);
+      areaEl.textContent = `${stats.areaA} a (${stats.areaM2.toLocaleString()} ㎡)`;
+    } else {
+      areaEl.textContent = `0 a (あと${Math.max(0, 3 - inputDrawVertices.length)}点クリック)`;
+    }
+  }
+}
+
+function toggleMapDrawMode(forceState) {
+  isInputMapDrawMode = forceState !== undefined ? forceState : !isInputMapDrawMode;
+  const toolbar = document.getElementById('inputMapDrawToolbar');
+  const btn = document.getElementById('btnToggleMapDraw');
+  if (toolbar) {
+    if (isInputMapDrawMode) {
+      toolbar.classList.remove('hidden');
+      const nameInput = document.getElementById('drawNewFieldName');
+      if (nameInput && !nameInput.value) {
+        nameInput.value = `新規マップ圃場${fieldsData.length + 1}号`;
+      }
+    } else {
+      toolbar.classList.add('hidden');
+      inputDrawVertices = [];
+    }
+  }
+  if (btn) {
+    btn.textContent = isInputMapDrawMode ? '📐 区画作図中（クリックで頂点追加）' : '✏️ 新規区画を囲んで追加';
+  }
+  updateInputDrawStatsUi_();
+  renderLeafletFieldMap_('input');
+}
+
+function clearMapDrawVertices() {
+  inputDrawVertices = [];
+  updateInputDrawStatsUi_();
+  renderLeafletFieldMap_('input');
+}
+
+function finishMapDrawField() {
+  if (inputDrawVertices.length < 3) {
+    showToast('⚠️ 頂点が不足しています', '航空写真上で田んぼの角を3点以上クリックして区画を囲んでください。');
+    return;
+  }
+  const stats = calcPolygonAreaStats(inputDrawVertices);
+  const rawName = (document.getElementById('drawNewFieldName')?.value || '').trim();
+  const name = rawName || `マップ圃場${fieldsData.length + 1}号`;
+  const crop = (document.getElementById('drawNewFieldCrop')?.value || '').trim() || 'コシヒカリ (BL)';
+  const newId = generateNextId('F', fieldsData.map(f => f.id));
+  const isYama = stats.centerLng > 139.042;
+
+  fieldsData.push({
+    id: newId,
+    name,
+    lot: `Googleマップ区画 (${stats.centerLat.toFixed(4)}, ${stats.centerLng.toFixed(4)})`,
+    group: isYama ? 'yama' : 'gps',
+    area: stats.areaA,
+    crop,
+    headingDate: isYama ? '2026/08/14' : '2026/08/08',
+    targetTempC: crop.includes('つきあかり') ? 950 : 1000,
+    dailyMeanTempC: isYama ? 23.2 : 25.5,
+    harvest: '2026/09/22',
+    stage: '未着手',
+    lat: Number(stats.centerLat.toFixed(5)),
+    lng: Number(stats.centerLng.toFixed(5)),
+    polygonCoords: [...inputDrawVertices],
+    doneCats: [],
+    nPer10a: 0,
+    pPer10a: 0,
+    kPer10a: 0,
+    pestCount: {},
+    alerts: [],
+    baseline: makeEmptyBaseline()
+  });
+
+  if (!selectedFieldIds.includes(newId)) {
+    selectedFieldIds.push(newId);
+  }
+  if (document.getElementById('drawNewFieldName')) {
+    document.getElementById('drawNewFieldName').value = '';
+  }
+  toggleMapDrawMode(false);
+  saveStateToStorage();
+  refreshAllViews();
+  showToast(
+    `🎉 Googleマップ上の区画から「${name} (${stats.areaA}a)」を登録・選択しました！`,
+    `自動測量面積: ${stats.areaM2.toLocaleString()}㎡ → ${stats.areaA}a（${inputDrawVertices.length || 3}頂点ポリゴン保存済）`
+  );
+}
+
+function clearPickerPolygonVertices() {
+  pickerDrawVertices = [];
+  renderLeafletFieldMap_('picker');
+  showToast('🔄 区画ポリゴンをリセットしました', '再度航空写真上をクリックして指定できます。');
 }
 
 function refreshInteractiveMaps_() {
@@ -1964,6 +2129,7 @@ function addNewFieldMaster() {
     stage: '未着手',
     lat: lat,
     lng: lng,
+    polygonCoords: pickerDrawVertices.length >= 3 ? [...pickerDrawVertices] : null,
     doneCats: [],
     nPer10a: 0,
     pPer10a: 0,
@@ -1976,6 +2142,7 @@ function addNewFieldMaster() {
   document.getElementById('newFieldName').value = '';
   document.getElementById('newFieldLot').value = '';
   if (document.getElementById('newFieldGmapUrl')) document.getElementById('newFieldGmapUrl').value = '';
+  pickerDrawVertices = [];
   saveStateToStorage();
   refreshAllViews();
   showToast(`✅ 新規圃場「${name} (${area}a)」を追加しました`, `GPS座標 (${lat.toFixed(4)}, ${lng.toFixed(4)}) でGoogleマップ航空写真＆GISカルテに即時反映されました。`);

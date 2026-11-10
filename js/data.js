@@ -252,6 +252,36 @@ function parseGoogleMapsCoords(inputStr) {
   return null;
 }
 
+/**
+ * ポリゴン頂点配列 [[lng, lat], ...] から面積(㎡・a)および重心座標を算出する（平面直角近似・Shoelace公式）
+ */
+function calcPolygonAreaStats(lngLatPts) {
+  if (!Array.isArray(lngLatPts) || lngLatPts.length < 3) {
+    const first = Array.isArray(lngLatPts) && lngLatPts[0] ? lngLatPts[0] : [139.0364, 37.9161];
+    return { areaM2: 0, areaA: 0, centerLat: Number(first[1]) || 37.9161, centerLng: Number(first[0]) || 139.0364 };
+  }
+  const n = lngLatPts.length;
+  const centerLng = lngLatPts.reduce((s, p) => s + Number(p[0]), 0) / n;
+  const centerLat = lngLatPts.reduce((s, p) => s + Number(p[1]), 0) / n;
+  const cosLat = Math.cos((centerLat * Math.PI) / 180);
+  const mPerDegLat = 111320;
+  const mPerDegLng = 111320 * cosLat;
+
+  let twiceArea = 0;
+  for (let i = 0; i < n; i++) {
+    const p1 = lngLatPts[i];
+    const p2 = lngLatPts[(i + 1) % n];
+    const x1 = (Number(p1[0]) - centerLng) * mPerDegLng;
+    const y1 = (Number(p1[1]) - centerLat) * mPerDegLat;
+    const x2 = (Number(p2[0]) - centerLng) * mPerDegLng;
+    const y2 = (Number(p2[1]) - centerLat) * mPerDegLat;
+    twiceArea += (x1 * y2 - x2 * y1);
+  }
+  const areaM2 = Math.round(Math.abs(twiceArea) / 2);
+  const areaA = Math.max(1, Math.round(areaM2 / 100));
+  return { areaM2, areaA, centerLat, centerLng };
+}
+
 function getLogPesticideIds(log) {
   if (Array.isArray(log.materialIds) && log.materialIds.length > 0) {
     return log.materialIds.filter(Boolean);
