@@ -1,0 +1,7 @@
+material_id,material_type,material_name,reg_number,active_ingredient,unit_size,base_unit,n_ratio_pct,p_ratio_pct,k_ratio_pct,std_dilution_rate,max_use_count,pre_harvest_days,current_stock_qty,reorder_point_qty
+F01,FERTILIZER,くみあい苦土入り複合オール14,-,-,20,kg,14,14,14,0,0,0,45,15
+F02,FERTILIZER,水稲一発基肥コートL80,-,-,20,kg,24,10,12,0,0,0,30,10
+F03,FERTILIZER,NK化成2号（穂肥用）,-,-,20,kg,17,0,17,0,0,0,12,15
+P01,PESTICIDE,アミスターフロアブル,第20142号,アゾキシストロビン,500,mL,0,0,0,1000,2,14,18,5
+P02,PESTICIDE,スタークル液剤10,第21993号,ジノテフラン,500,mL,0,0,0,1000,3,7,24,5
+P03,PESTICIDE,ビームゾル,第14201号,トリシクラゾール,500,mL,0,0,0,1000,2,21,6,5

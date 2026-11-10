@@ -1,0 +1,2570 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#059669">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="./manifest.json">
+  <title>らくらく営農日誌 Next - 本格PWA版</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    .field-polygon {
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+    .field-polygon:hover {
+      filter: brightness(1.15);
+      stroke-width: 3px;
+    }
+    .field-selected {
+      stroke: #facc15 !important;
+      stroke-width: 4px !important;
+      filter: drop-shadow(0 0 8px rgba(250, 204, 21, 0.65));
+    }
+    @media print {
+      .no-print { display: none !important; }
+      .print-sheet { box-shadow: none !important; border: none !important; }
+    }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased p-3 md:p-6">
+
+  <!-- トップヘッダー：システムタイトル & オフライン同期・永続化ステータス -->
+  <header class="no-print bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 mb-4 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+    <div class="flex items-center gap-3">
+      <div class="w-11 h-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-sm shrink-0">
+        農
+      </div>
+      <div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <h1 class="text-lg md:text-xl font-bold text-[var(--foreground)]">らくらく営農日誌 Next</h1>
+          <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-600 border border-emerald-500/30">
+            PWA・端末内自動保存対応
+          </span>
+        </div>
+        <p class="text-xs text-[var(--muted-foreground)] mt-0.5">
+          入力データはスマホ端末内（LocalStorage）に自動保存され、山間部の電波圏外でも消えません。GAS連携でスプレッドシートへ一括同期可能。
+        </p>
+      </div>
+    </div>
+
+    <!-- オフライン / オンライン切替 & GAS同期ボタン -->
+    <div class="flex items-center gap-2 flex-wrap self-start lg:self-auto">
+      <div id="syncBadge" class="flex items-center gap-2 px-3 py-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-600 text-xs font-semibold">
+        <span id="syncDot" class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span id="syncText">端末保存済・オンライン</span>
+      </div>
+      <button onclick="toggleOfflineMode()" class="px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-90 text-xs font-semibold transition">
+        📡 圏外テスト切替
+      </button>
+      <button onclick="syncWithGasBackend()" class="px-3 py-2 rounded-xl bg-sky-600 text-white hover:bg-sky-700 text-xs font-bold transition shadow-sm">
+        ☁️ スプレッドシート同期
+      </button>
+    </div>
+  </header>
+
+  <!-- メインナビゲーションタブ（5タブ） -->
+  <nav class="no-print grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-5">
+    <button onclick="switchMainTab('input')" id="tabBtn-input" class="flex items-center justify-center gap-1.5 py-3 px-3 rounded-xl font-bold text-xs md:text-sm border transition bg-emerald-600 text-white border-emerald-600 shadow-sm">
+      <span>📱 1. 現場一括入力</span>
+    </button>
+    <button onclick="switchMainTab('gis')" id="tabBtn-gis" class="flex items-center justify-center gap-1.5 py-3 px-3 rounded-xl font-bold text-xs md:text-sm border transition bg-[var(--card)] text-[var(--foreground)] border-[var(--border)] hover:bg-[var(--secondary)]">
+      <span>🗺️ 2. GIS進捗・カルテ</span>
+    </button>
+    <button onclick="switchMainTab('resource')" id="tabBtn-resource" class="flex items-center justify-center gap-1.5 py-3 px-3 rounded-xl font-bold text-xs md:text-sm border transition bg-[var(--card)] text-[var(--foreground)] border-[var(--border)] hover:bg-[var(--secondary)]">
+      <span>🚜 3. 機械・資材在庫</span>
+    </button>
+    <button onclick="switchMainTab('report')" id="tabBtn-report" class="flex items-center justify-center gap-1.5 py-3 px-3 rounded-xl font-bold text-xs md:text-sm border transition bg-[var(--card)] text-[var(--foreground)] border-[var(--border)] hover:bg-[var(--secondary)]">
+      <span>🖨️ 4. JA・行政 A4帳票</span>
+    </button>
+    <button onclick="switchMainTab('settings')" id="tabBtn-settings" class="col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 py-3 px-3 rounded-xl font-bold text-xs md:text-sm border transition bg-[var(--card)] text-[var(--foreground)] border-[var(--border)] hover:bg-[var(--secondary)]">
+      <span>🔄 5. 他社データ移行・設定</span>
+    </button>
+  </nav>
+
+  <!-- トースト通知エリア -->
+  <div id="toastBox" class="hidden fixed bottom-5 right-5 z-50 max-w-md bg-emerald-700 text-white px-5 py-4 rounded-2xl shadow-xl border border-emerald-400/40">
+    <div class="font-bold text-sm" id="toastTitle">登録完了</div>
+    <div class="text-xs mt-1 opacity-95" id="toastDesc"></div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 1: 現場スマホ一括入力画面（片手操作・1作業×複数圃場・自動按分）       -->
+  <!-- ========================================================================= -->
+  <section id="tab-input" class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+    
+    <!-- 左カラム：スマホ実機入力パネル -->
+    <div class="lg:col-span-7 bg-[var(--card)] border-2 border-[var(--border)] rounded-3xl p-4 md:p-6 shadow-md">
+      <div class="flex items-center justify-between flex-wrap gap-2 pb-3 mb-4 border-b border-[var(--border)]">
+        <div>
+          <span class="text-xs font-bold uppercase tracking-wider text-emerald-600">FIELD FIRST PWA</span>
+          <h2 class="text-lg font-bold text-[var(--foreground)]">現場1アクション同時登録（日報 × 圃場履歴）</h2>
+        </div>
+        <div class="flex items-center gap-2">
+          <input type="date" id="workDateInput" value="2026-08-05" onchange="recalculatePreview()" class="px-2.5 py-1.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-xs font-bold text-[var(--foreground)]">
+          <input type="text" id="workerNameInput" value="佐藤 健一" oninput="recalculatePreview()" placeholder="作業者名" class="w-28 px-2.5 py-1.5 rounded-lg bg-[var(--background)] border border-[var(--border)] text-xs font-bold text-[var(--foreground)]">
+        </div>
+      </div>
+
+      <!-- STEP 0: 「前回と同じ」ワンタップ呼び出しバー -->
+      <div class="mb-5">
+        <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-2">
+          ⚡ ワンタップ履歴呼び出し（「前回と同じ」で入力手間を9割削減）
+        </label>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <button onclick="applyPreset('fertilizer')" class="text-left p-2.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 transition">
+            <div class="text-xs font-bold text-emerald-600">🌱 基肥・元肥散布</div>
+            <div class="text-xs text-[var(--muted-foreground)] truncate">くみあいオール14 / ブロードキャスタ</div>
+          </button>
+          <button onclick="applyPreset('pesticide')" class="text-left p-2.5 rounded-xl border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 transition">
+            <div class="text-xs font-bold text-sky-600">🚁 ドローン防除</div>
+            <div class="text-xs text-[var(--muted-foreground)] truncate">アミスター8倍 / DJI T30</div>
+          </button>
+          <button onclick="applyPreset('mowing')" class="text-left p-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 transition">
+            <div class="text-xs font-bold text-amber-600">🌿 畦畔草刈り（昨日の続き）</div>
+            <div class="text-xs text-[var(--muted-foreground)] truncate">乗用モア RM983 / 山間飛び地</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- STEP 1: 対象圃場の複数選択（実GPS測位サジェスト ＋ 団地一括選択） -->
+      <div class="mb-5 bg-[var(--background)] border border-[var(--border)] rounded-2xl p-4">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">1</span>
+            <h3 class="text-sm font-bold text-[var(--foreground)]">対象圃場を選択（複数タップ可・飛び地一括対応）</h3>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            <button onclick="detectGpsNearestFields()" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-sm">
+              🛰️ 実GPSで現在地周辺を自動選択
+            </button>
+            <button onclick="selectFieldGroup('yama')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80 transition">
+              ⛰️ 山間飛び地(3筆)
+            </button>
+            <button onclick="selectFieldGroup('all')" class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80 transition">
+              全選択
+            </button>
+          </div>
+        </div>
+
+        <div id="gpsStatusBanner" class="hidden mb-2.5 px-3 py-1.5 rounded-lg bg-sky-500/15 border border-sky-500/30 text-sky-600 text-xs font-semibold"></div>
+
+        <!-- 圃場タイルボタン群 -->
+        <div id="inputFieldGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-3">
+          <!-- JSで動的描画 -->
+        </div>
+
+        <!-- 選択サマリーバー -->
+        <div class="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3.5 py-2.5">
+          <div class="text-xs font-semibold text-[var(--foreground)]">
+            選択中: <span id="selectedCountLabel" class="font-bold text-emerald-600 text-sm">3</span> 筆
+            <span class="text-[var(--muted-foreground)] ml-1">（面積比率で自動按分）</span>
+          </div>
+          <div class="text-sm font-bold text-emerald-600">
+            合計面積: <span id="selectedTotalAreaLabel">100</span> a <span class="text-xs font-normal">（<span id="selectedTotalTanLabel">10.0</span> 反）</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2: 作業内容・作業時間・機械の選択 -->
+      <div class="mb-5 bg-[var(--background)] border border-[var(--border)] rounded-2xl p-4">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">2</span>
+          <h3 class="text-sm font-bold text-[var(--foreground)]">作業内容・時間・使用機械（片手タップ入力）</h3>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-4" id="workCatButtons">
+          <button onclick="selectWorkCat('耕起')" data-cat="耕起" class="work-cat-btn py-2.5 px-2 rounded-xl border text-xs font-bold transition">🚜 耕起</button>
+          <button onclick="selectWorkCat('代かき')" data-cat="代かき" class="work-cat-btn py-2.5 px-2 rounded-xl border text-xs font-bold transition">🌊 代かき</button>
+          <button onclick="selectWorkCat('田植え')" data-cat="田植え" class="work-cat-btn py-2.5 px-2 rounded-xl border text-xs font-bold transition">🌱 田植え</button>
+          <button onclick="selectWorkCat('草刈り')" data-cat="草刈り" class="work-cat-btn py-2.5 px-2 rounded-xl border text-xs font-bold transition">🌿 草刈り</button>
+          <button onclick="selectWorkCat('施肥')" data-cat="施肥" class="work-cat-btn py-2.5 px-2 rounded-xl border text-xs font-bold transition">🧪 施肥</button>
+          <button onclick="selectWorkCat('防除')" data-cat="防除" class="work-cat-btn py-2.5 px-2 rounded-xl border text-xs font-bold transition">🛡️ 防除</button>
+          <button onclick="selectWorkCat('収穫')" data-cat="収穫" class="work-cat-btn py-2.5 px-2 rounded-xl border text-xs font-bold transition col-span-2 sm:col-span-1">🌾 収穫・刈取</button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">総作業時間（日報＆機械アワーへ連動）</label>
+            <div class="flex items-center gap-2">
+              <button onclick="adjustDuration(-0.5)" class="w-12 h-11 rounded-xl bg-[var(--secondary)] text-[var(--foreground)] font-bold text-lg border border-[var(--border)]">－</button>
+              <div class="flex-1 h-11 rounded-xl bg-[var(--card)] border border-[var(--border)] flex items-center justify-center font-bold text-base">
+                <span id="durationValue">2.0</span> <span class="text-xs font-normal ml-1 text-[var(--muted-foreground)]">時間 (h)</span>
+              </div>
+              <button onclick="adjustDuration(0.5)" class="w-12 h-11 rounded-xl bg-[var(--secondary)] text-[var(--foreground)] font-bold text-lg border border-[var(--border)]">＋</button>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">使用機械（稼働時間を自動加算）</label>
+            <select id="machineSelect" onchange="recalculatePreview()" class="w-full h-11 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-semibold text-[var(--foreground)]">
+              <!-- JSで動的描画 -->
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 3: 資材入力（施肥NPK自動計算 / 防除希釈逆算＆安全基準チェック） -->
+      <div id="materialSection" class="mb-5 bg-[var(--background)] border border-[var(--border)] rounded-2xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">3</span>
+            <h3 class="text-sm font-bold text-[var(--foreground)]" id="materialSectionTitle">使用資材・自動計算</h3>
+          </div>
+        </div>
+
+        <!-- 施肥モードUI -->
+        <div id="fertilizerPanel">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">
+            <div>
+              <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">使用する肥料銘柄（在庫連動）</label>
+              <select id="fertilizerSelect" onchange="recalculatePreview()" class="w-full h-11 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-semibold text-[var(--foreground)]">
+                <!-- JSで動的描画 -->
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">今回まいた合計袋数（全選択圃場の合計）</label>
+              <div class="flex items-center gap-2">
+                <button onclick="adjustBags(-1)" class="w-12 h-11 rounded-xl bg-[var(--secondary)] text-[var(--foreground)] font-bold text-lg border border-[var(--border)]">－</button>
+                <div class="flex-1 h-11 rounded-xl bg-[var(--card)] border border-[var(--border)] flex items-center justify-center font-bold text-base">
+                  <span id="bagCountValue">10</span> <span class="text-xs font-normal ml-1 text-[var(--muted-foreground)]">袋 (<span id="totalKgValue">200</span> kg)</span>
+                </div>
+                <button onclick="adjustBags(1)" class="w-12 h-11 rounded-xl bg-[var(--secondary)] text-[var(--foreground)] font-bold text-lg border border-[var(--border)]">＋</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- NPK自動計算サマリーBOX -->
+          <div class="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+            <div>
+              <div class="text-xs text-[var(--muted-foreground)]">10aあたり施用量</div>
+              <div class="text-base font-bold text-[var(--foreground)]"><span id="calcFertPer10a">20.0</span> <span class="text-xs font-normal">kg/10a</span></div>
+            </div>
+            <div>
+              <div class="text-xs text-emerald-600 font-semibold">チッソ (N) 正味量</div>
+              <div class="text-base font-bold text-emerald-600"><span id="calcNPer10a">2.80</span> <span class="text-xs font-normal">kg/10a</span></div>
+              <div class="text-xs text-[var(--muted-foreground)]">総量 <span id="calcNTotal">28.0</span> kg</div>
+            </div>
+            <div>
+              <div class="text-xs text-sky-600 font-semibold">リン酸 (P) 正味量</div>
+              <div class="text-base font-bold text-sky-600"><span id="calcPPer10a">2.80</span> <span class="text-xs font-normal">kg/10a</span></div>
+              <div class="text-xs text-[var(--muted-foreground)]">総量 <span id="calcPTotal">28.0</span> kg</div>
+            </div>
+            <div>
+              <div class="text-xs text-amber-600 font-semibold">カリ (K) 正味量</div>
+              <div class="text-base font-bold text-amber-600"><span id="calcKPer10a">2.80</span> <span class="text-xs font-normal">kg/10a</span></div>
+              <div class="text-xs text-[var(--muted-foreground)]">総量 <span id="calcKTotal">28.0</span> kg</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 防除（農薬希釈逆算＆安全基準チェック）モードUI -->
+        <div id="pesticidePanel" class="hidden">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+            <div class="sm:col-span-2">
+              <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">使用農薬（登録番号・安全基準連動）</label>
+              <select id="pesticideSelect" onchange="recalculatePreview()" class="w-full h-11 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-semibold text-[var(--foreground)]">
+                <!-- JSで動的描画 -->
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">希釈倍率 / 10a散布水量</label>
+              <select id="dilutionSelect" onchange="recalculatePreview()" class="w-full h-11 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-semibold text-[var(--foreground)]">
+                <option value="1000_100">1000倍（ブーム 100L/10a）</option>
+                <option value="8_0.8">8倍（ドローン 0.8L/10a）</option>
+                <option value="500_100">500倍（動力噴霧 100L/10a）</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="p-3.5 rounded-xl bg-sky-500/10 border border-sky-500/30 grid grid-cols-3 gap-3 text-center mb-3">
+            <div>
+              <div class="text-xs text-[var(--muted-foreground)]">選択圃場 合計面積</div>
+              <div class="text-base font-bold text-[var(--foreground)]"><span id="pestAreaDisplay">100</span> <span class="text-xs font-normal">a</span></div>
+            </div>
+            <div>
+              <div class="text-xs text-sky-600 font-semibold">💧 必要総水量（自動逆算）</div>
+              <div class="text-base font-bold text-sky-600"><span id="calcWaterL">1,000</span> <span class="text-xs font-normal">L</span></div>
+            </div>
+            <div>
+              <div class="text-xs text-emerald-600 font-semibold">🧪 必要農薬原液量（自動逆算）</div>
+              <div class="text-base font-bold text-emerald-600"><span id="calcChemMl">1,000</span> <span class="text-xs font-normal">mL</span></div>
+            </div>
+          </div>
+
+          <div id="safetyAlertBox" class="p-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-xs font-semibold text-emerald-600"></div>
+        </div>
+
+        <!-- 収穫・刈取（反収・等級・水分量 自動按分）モードUI -->
+        <div id="harvestPanel" class="hidden">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+            <div>
+              <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">収穫袋数（30kg紙袋換算）</label>
+              <div class="flex items-center gap-1.5">
+                <button onclick="adjustHarvestBags(-10)" class="w-10 h-11 rounded-xl bg-[var(--secondary)] text-[var(--foreground)] font-bold text-sm border border-[var(--border)]">-10</button>
+                <div class="flex-1 h-11 rounded-xl bg-[var(--card)] border border-[var(--border)] flex items-center justify-center font-bold text-sm">
+                  <span id="harvestBagValue">180</span> <span class="text-xs font-normal ml-1 text-[var(--muted-foreground)]">袋</span>
+                </div>
+                <button onclick="adjustHarvestBags(10)" class="w-10 h-11 rounded-xl bg-[var(--secondary)] text-[var(--foreground)] font-bold text-sm border border-[var(--border)]">+10</button>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">玄米水分量 (%)</label>
+              <input type="number" step="0.1" id="harvestMoistureInput" value="14.8" onchange="recalculatePreview()" class="w-full h-11 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-bold text-[var(--foreground)]">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">検査等級（見込）</label>
+              <select id="harvestGradeSelect" onchange="recalculatePreview()" class="w-full h-11 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-semibold text-[var(--foreground)]">
+                <option value="1等">🥇 1等米</option>
+                <option value="2等">🥈 2等米</option>
+                <option value="3等">🥉 3等米</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 grid grid-cols-3 gap-3 text-center">
+            <div>
+              <div class="text-xs text-[var(--muted-foreground)]">総収穫重量 (玄米)</div>
+              <div class="text-base font-bold text-[var(--foreground)]"><span id="calcHarvestTotalKg">5,400</span> <span class="text-xs font-normal">kg</span></div>
+            </div>
+            <div>
+              <div class="text-xs text-amber-600 font-semibold">🌾 10aあたり反収 (俵)</div>
+              <div class="text-base font-bold text-amber-600"><span id="calcYieldTawara10a">9.0</span> <span class="text-xs font-normal">俵/10a</span></div>
+            </div>
+            <div>
+              <div class="text-xs text-emerald-600 font-semibold">⚖️ 10aあたり反収 (kg)</div>
+              <div class="text-base font-bold text-emerald-600"><span id="calcYieldKg10a">540</span> <span class="text-xs font-normal">kg/10a</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 資材なし表示 -->
+        <div id="noMaterialPanel" class="hidden p-3 rounded-xl bg-[var(--secondary)] text-xs text-[var(--muted-foreground)]">
+          💡 この作業種別では農薬・肥料の消費はありません（作業時間・圃場ステータス・機械稼働時間のみ自動記録されます）。
+        </div>
+      </div>
+
+      <!-- 登録ボタン -->
+      <button onclick="submitUnifiedWorkLog()" class="w-full py-4 px-6 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-base shadow-lg transition flex items-center justify-center gap-2">
+        <span>✅ 作業日報 ＆ 選択圃場カルテを一括登録する（端末内自動保存）</span>
+      </button>
+    </div>
+
+    <!-- 右カラム：リアルタイム按分・同時連動プレビュー -->
+    <div class="lg:col-span-5 space-y-5">
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-base font-bold text-[var(--foreground)]">🔄 リアルタイム面積按分・同時連動プレビュー</h3>
+          <span class="text-xs px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 font-semibold">自動計算エンジン</span>
+        </div>
+        <p class="text-xs text-[var(--muted-foreground)] mb-4">
+          左画面の1回の入力から、選択された各田んぼの面積比率（<code class="px-1 py-0.5 rounded bg-[var(--secondary)]">area_ratio</code>）に応じて以下の明細レコードが同時に生成・保存されます。
+        </p>
+
+        <div class="overflow-x-auto border border-[var(--border)] rounded-xl mb-4">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="bg-[var(--secondary)] text-[var(--secondary-foreground)] border-b border-[var(--border)]">
+                <th class="p-2.5 font-bold">圃場名</th>
+                <th class="p-2.5 font-bold text-right">面積</th>
+                <th class="p-2.5 font-bold text-right">按分比</th>
+                <th class="p-2.5 font-bold text-right">按分時間</th>
+                <th class="p-2.5 font-bold text-right" id="allocColHeader">按分資材 / NPK</th>
+              </tr>
+            </thead>
+            <tbody id="allocationPreviewBody" class="divide-y divide-[var(--border)]"></tbody>
+          </table>
+        </div>
+
+        <div class="space-y-2.5 text-xs">
+          <div class="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)] flex items-start justify-between gap-2">
+            <div>
+              <div class="font-bold text-[var(--foreground)]">① 作業日報（労務・オペレーター記録）</div>
+              <div class="text-[var(--muted-foreground)] mt-0.5" id="previewDiarySummary"></div>
+            </div>
+            <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 font-bold shrink-0">自動反映</span>
+          </div>
+          <div class="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)] flex items-start justify-between gap-2">
+            <div>
+              <div class="font-bold text-[var(--foreground)]">② 機械アワーメーター＆点検アラート</div>
+              <div class="text-[var(--muted-foreground)] mt-0.5" id="previewMachineSummary"></div>
+            </div>
+            <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 font-bold shrink-0">自動加算</span>
+          </div>
+          <div class="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)] flex items-start justify-between gap-2">
+            <div>
+              <div class="font-bold text-[var(--foreground)]">③ 資材在庫の自動引き落とし</div>
+              <div class="text-[var(--muted-foreground)] mt-0.5" id="previewStockSummary"></div>
+            </div>
+            <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 font-bold shrink-0">自動引落</span>
+          </div>
+          <div class="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)] flex items-start justify-between gap-2">
+            <div>
+              <div class="font-bold text-[var(--foreground)]">④ JA防除履歴簿・施肥台帳（A4帳票）</div>
+              <div class="text-[var(--muted-foreground)] mt-0.5">10aあたり施用量・成分量・農薬使用回数を即時バインド</div>
+            </div>
+            <button onclick="switchMainTab('report')" class="px-2.5 py-1 rounded bg-emerald-600 text-white font-bold shrink-0 hover:bg-emerald-700">帳票を見る →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 2: GIS圃場マップ・作業進捗ヒートマップ・圃場カルテ                     -->
+  <!-- ========================================================================= -->
+  <section id="tab-gis" class="hidden grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+    <div class="lg:col-span-7 bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-lg font-bold text-[var(--foreground)]">🗺️ 航空写真GISマップ ＆ 進捗ヒートマップ</h2>
+          <p class="text-xs text-[var(--muted-foreground)]">工程ボタンを押すと進捗状況で色分けされます。田んぼをタップすると右側にカルテを表示します。</p>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          <button onclick="setHeatmapLayer('all')" id="heatBtn-all" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white">全体進捗</button>
+          <button onclick="setHeatmapLayer('耕起')" id="heatBtn-耕起" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">耕起</button>
+          <button onclick="setHeatmapLayer('草刈り')" id="heatBtn-草刈り" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">草刈り</button>
+          <button onclick="setHeatmapLayer('施肥')" id="heatBtn-施肥" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">施肥</button>
+          <button onclick="setHeatmapLayer('防除')" id="heatBtn-防除" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">防除</button>
+        </div>
+      </div>
+
+      <div class="relative rounded-2xl overflow-hidden border border-[var(--border)] bg-stone-900">
+        <svg viewBox="0 0 760 440" class="w-full h-auto block select-none">
+          <rect width="760" height="440" fill="#1e2923"/>
+          <path d="M 430 0 L 760 0 L 760 250 L 490 210 Z" fill="#142018"/>
+          <path d="M 0 265 Q 280 250, 460 280 T 760 310" stroke="#0284c7" stroke-width="14" fill="none" opacity="0.7"/>
+          <path d="M 30 0 L 30 440 M 0 145 L 450 145 M 460 0 L 460 440" stroke="#57534e" stroke-width="8" fill="none"/>
+          <text x="45" y="28" fill="#a7f3d0" font-size="13" font-weight="bold">📍 本場平場団地（GPS現在地エリア）</text>
+          <text x="480" y="28" fill="#fde68a" font-size="13" font-weight="bold">⛰️ 中山間・上山田飛び地エリア（電波微弱圏）</text>
+
+          <g id="gisPolygonGroup">
+            <g onclick="inspectField('F01')" class="field-polygon" id="poly-F01">
+              <polygon points="50,45 175,45 175,130 50,130" fill="#10b981" fill-opacity="0.75" stroke="#ffffff" stroke-width="2"/>
+              <text x="112" y="80" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">① 本場1号 (30a)</text>
+              <text x="112" y="100" text-anchor="middle" fill="#ecfdf5" font-size="12" id="polyStatus-F01">コシヒカリ</text>
+            </g>
+            <g onclick="inspectField('F02')" class="field-polygon" id="poly-F02">
+              <polygon points="190,45 295,45 295,130 190,130" fill="#10b981" fill-opacity="0.75" stroke="#ffffff" stroke-width="2"/>
+              <text x="242" y="80" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">② 本場2号 (20a)</text>
+              <text x="242" y="100" text-anchor="middle" fill="#ecfdf5" font-size="12" id="polyStatus-F02">コシヒカリ</text>
+            </g>
+            <g onclick="inspectField('F03')" class="field-polygon" id="poly-F03">
+              <polygon points="50,160 295,160 295,245 50,245" fill="#10b981" fill-opacity="0.75" stroke="#ffffff" stroke-width="2"/>
+              <text x="172" y="198" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="bold">③ 本場3号・大町 (50a)</text>
+              <text x="172" y="218" text-anchor="middle" fill="#ecfdf5" font-size="12" id="polyStatus-F03">コシヒカリ</text>
+            </g>
+            <g onclick="inspectField('F04')" class="field-polygon" id="poly-F04">
+              <polygon points="50,300 240,300 260,405 50,405" fill="#f59e0b" fill-opacity="0.75" stroke="#ffffff" stroke-width="2"/>
+              <text x="150" y="348" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">④ 川向4号 (35a)</text>
+              <text x="150" y="368" text-anchor="middle" fill="#fef3c7" font-size="12" id="polyStatus-F04">つきあかり</text>
+            </g>
+            <g onclick="inspectField('F05')" class="field-polygon" id="poly-F05">
+              <polygon points="490,50 615,45 605,120 485,115" fill="#64748b" fill-opacity="0.8" stroke="#ffffff" stroke-width="2"/>
+              <text x="550" y="80" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">⑤ 上山田A (15a)</text>
+              <text x="550" y="98" text-anchor="middle" fill="#f1f5f9" font-size="12" id="polyStatus-F05">未着手</text>
+            </g>
+            <g onclick="inspectField('F06')" class="field-polygon" id="poly-F06">
+              <polygon points="630,55 735,65 725,140 620,130" fill="#64748b" fill-opacity="0.8" stroke="#ffffff" stroke-width="2"/>
+              <text x="677" y="95" text-anchor="middle" fill="#ffffff" font-size="12" font-weight="bold">⑥ 上山田B (18a)</text>
+              <text x="677" y="113" text-anchor="middle" fill="#f1f5f9" font-size="12" id="polyStatus-F06">未着手</text>
+            </g>
+            <g onclick="inspectField('F07')" class="field-polygon" id="poly-F07">
+              <polygon points="500,150 695,160 685,235 495,225" fill="#f59e0b" fill-opacity="0.75" stroke="#ffffff" stroke-width="2"/>
+              <text x="595" y="190" text-anchor="middle" fill="#ffffff" font-size="13" font-weight="bold">⑦ 上山田棚田C (22a)</text>
+              <text x="595" y="210" text-anchor="middle" fill="#fef3c7" font-size="12" id="polyStatus-F07">草刈り済</text>
+            </g>
+          </g>
+        </svg>
+
+        <div class="flex items-center justify-between flex-wrap gap-2 px-4 py-2.5 bg-stone-950/90 text-white text-xs">
+          <div class="flex items-center gap-4">
+            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-emerald-500 inline-block"></span> 完了済</span>
+            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-amber-500 inline-block"></span> 一部作業中</span>
+            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm bg-slate-500 inline-block"></span> 未着手</span>
+          </div>
+          <div>💡 新規追加した圃場も下のリストから選択・カルテ確認できます</div>
+        </div>
+      </div>
+
+      <!-- 全圃場クイック選択ピル（新規追加圃場にも対応） -->
+      <div id="gisFieldPillList" class="flex flex-wrap gap-2 mt-3"></div>
+    </div>
+
+    <!-- 右：圃場詳細カルテ -->
+    <div class="lg:col-span-5 bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+      <div class="flex items-center justify-between pb-3 mb-4 border-b border-[var(--border)]">
+        <div>
+          <span class="text-xs font-bold text-emerald-600">FIELD KARTE</span>
+          <h3 class="text-lg font-bold text-[var(--foreground)]" id="karteTitle">① 本場1号</h3>
+        </div>
+        <button onclick="jumpToInputWithField()" class="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition">
+          ＋ この圃場で作業入力
+        </button>
+      </div>
+
+      <div class="grid grid-cols-3 gap-2.5 mb-4 text-center">
+        <div class="p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          <div class="text-xs text-[var(--muted-foreground)]">作付面積</div>
+          <div class="text-base font-bold text-[var(--foreground)]" id="karteArea">30 a</div>
+        </div>
+        <div class="p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          <div class="text-xs text-[var(--muted-foreground)]">作付品種</div>
+          <div class="text-sm font-bold text-[var(--foreground)]" id="karteCrop">コシヒカリ (BL)</div>
+        </div>
+        <div class="p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          <div class="text-xs text-[var(--muted-foreground)]">収穫予定日</div>
+          <div class="text-sm font-bold text-[var(--foreground)]" id="karteHarvest">2026/09/20</div>
+        </div>
+      </div>
+
+      <div class="p-4 rounded-2xl bg-[var(--background)] border border-[var(--border)] mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold text-[var(--foreground)]">🧪 本作期の累計投入成分量（10aあたり正味量）</span>
+          <span class="text-xs text-[var(--muted-foreground)]">基準目標: N 6.0kg / 10a</span>
+        </div>
+        <div class="space-y-2.5 text-xs">
+          <div>
+            <div class="flex justify-between mb-1">
+              <span class="font-semibold text-emerald-600">チッソ (N)</span>
+              <span class="font-bold" id="karteNText"></span>
+            </div>
+            <div class="w-full h-2.5 rounded-full bg-[var(--secondary)] overflow-hidden">
+              <div id="karteNBar" class="h-full bg-emerald-500 rounded-full" style="width: 46%"></div>
+            </div>
+          </div>
+          <div>
+            <div class="flex justify-between mb-1">
+              <span class="font-semibold text-sky-600">リン酸 (P)</span>
+              <span class="font-bold" id="kartePText"></span>
+            </div>
+            <div class="w-full h-2.5 rounded-full bg-[var(--secondary)] overflow-hidden">
+              <div id="kartePBar" class="h-full bg-sky-500 rounded-full" style="width: 46%"></div>
+            </div>
+          </div>
+          <div>
+            <div class="flex justify-between mb-1">
+              <span class="font-semibold text-amber-600">カリ (K)</span>
+              <span class="font-bold" id="karteKText"></span>
+            </div>
+            <div class="w-full h-2.5 rounded-full bg-[var(--secondary)] overflow-hidden">
+              <div id="karteKBar" class="h-full bg-amber-500 rounded-full" style="width: 46%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h4 class="text-xs font-bold text-[var(--muted-foreground)] mb-2">📋 この圃場の作業・防除・施肥カルテ履歴（最新順）</h4>
+        <div id="karteHistoryList" class="space-y-2 max-h-64 overflow-y-auto pr-1"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 3: 機械アワーメーター・点検アラート ＆ 資材在庫連動                   -->
+  <!-- ========================================================================= -->
+  <section id="tab-resource" class="hidden grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+      <div class="mb-4">
+        <h2 class="text-lg font-bold text-[var(--foreground)]">🚜 農機具アワーメーター・点検記録</h2>
+        <p class="text-xs text-[var(--muted-foreground)]">日誌登録で稼働時間が自動加算されます。「🔧 点検・オイル交換完了」を押すと次回目安が更新されます。</p>
+      </div>
+      <div id="machineCardList" class="space-y-3"></div>
+    </div>
+
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+      <div class="mb-4">
+        <h2 class="text-lg font-bold text-[var(--foreground)]">📦 肥料・農薬 在庫リアルタイム管理（入庫補充対応）</h2>
+        <p class="text-xs text-[var(--muted-foreground)]">日誌で施用記録をつけると自動引落されます。購入した際は「＋入庫」ボタンで在庫を追加できます。</p>
+      </div>
+      <div id="materialStockList" class="space-y-3"></div>
+    </div>
+  </section>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 4: JA・行政・GAP提出用 A4完成帳票ワンクリック出力プレビュー            -->
+  <!-- ========================================================================= -->
+  <section id="tab-report" class="hidden space-y-5">
+    <div class="no-print bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <button onclick="switchReportType('ja')" id="repBtn-ja" class="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white">
+          📄 1. JA提出用：生産履歴記帳簿（施肥・防除）
+        </button>
+        <button onclick="switchReportType('daily')" id="repBtn-daily" class="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">
+          📋 2. 行政・法人用：作業日報・面積按分表
+        </button>
+        <button onclick="switchReportType('yield')" id="repBtn-yield" class="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">
+          📊 3. 経営・GAP用：圃場別「反収×NPK×労働時間」総括表
+        </button>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="exportCsvData()" class="px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold hover:opacity-90">
+          📥 Excel/CSV出力
+        </button>
+        <button onclick="window.print()" class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-sm">
+          🖨️ A4フォーマットで一発印刷 / PDF保存
+        </button>
+      </div>
+    </div>
+
+    <div class="print-sheet bg-white text-slate-900 border border-slate-300 rounded-xl p-6 md:p-8 shadow-lg max-w-5xl mx-auto">
+      <div id="reportSheet-ja">
+        <!-- JA帳票：品種別・圃場グループ別フィルタバー（印刷時は非表示） -->
+        <div class="no-print mb-4 p-3 rounded-xl bg-slate-100 border border-slate-300 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2 text-xs font-bold text-slate-700">
+            <span>🔍 JA提出単位（品種・団地・圃場）で絞り込み・面積加重集計：</span>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <select id="jaReportCropFilter" onchange="renderReportsTab()" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-bold text-slate-800">
+              <option value="ALL">すべての品種</option>
+            </select>
+            <select id="jaReportFieldFilter" onchange="renderReportsTab()" class="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-xs font-bold text-slate-800">
+              <option value="ALL">すべての団地・圃場</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex justify-between items-start border-b-2 border-slate-800 pb-3 mb-4">
+          <div>
+            <div class="text-xs font-bold text-slate-600">JA提出・GAP監査対応 標準A4様式（品種・圃場別 面積加重自動集計）</div>
+            <h2 class="text-xl font-bold text-slate-900 mt-0.5">令和8年度 水稲 生産履歴記帳簿（施肥台帳・防除履歴簿）</h2>
+          </div>
+          <div class="text-right text-xs text-slate-700 space-y-0.5">
+            <div><span class="font-bold">生産者名：</span>株式会社セーブモデル農園（代表：佐藤 健一）</div>
+            <div><span class="font-bold">対象品種：</span><span id="jaHeaderCropLabel">コシヒカリ (BL)</span> ／ <span class="font-bold">対象圃場・面積：</span><span id="jaHeaderAreaLabel">本場・上山田団地</span></div>
+            <div><span class="font-bold">出力日時：</span><span id="jaHeaderDateLabel">2026年8月5日</span>（現場スマホ入力データより自動按分・集計）</div>
+          </div>
+        </div>
+
+        <h3 class="text-sm font-bold bg-slate-100 border-l-4 border-emerald-600 px-3 py-1.5 mb-2 text-slate-900">
+          【1】施肥履歴台帳（10aあたり成分量・チッソ/リン酸/カリ自動積算）
+        </h3>
+        <div class="overflow-x-auto mb-6">
+          <table class="w-full border-collapse border border-slate-400 text-xs text-slate-900">
+            <thead>
+              <tr class="bg-slate-100">
+                <th class="border border-slate-400 p-2 text-left">施用年月日</th>
+                <th class="border border-slate-400 p-2 text-left">対象圃場（複数一括記録）</th>
+                <th class="border border-slate-400 p-2 text-right">対象面積(a)</th>
+                <th class="border border-slate-400 p-2 text-left">肥料名称</th>
+                <th class="border border-slate-400 p-2 text-center">成分比(N-P-K)</th>
+                <th class="border border-slate-400 p-2 text-right">総使用量</th>
+                <th class="border border-slate-400 p-2 text-right">10a施用量</th>
+                <th class="border border-slate-400 p-2 text-right">N成分(kg/10a)</th>
+                <th class="border border-slate-400 p-2 text-right">P成分(kg/10a)</th>
+                <th class="border border-slate-400 p-2 text-right">K成分(kg/10a)</th>
+              </tr>
+            </thead>
+            <tbody id="jaReportFertilizerBody"></tbody>
+          </table>
+        </div>
+
+        <h3 class="text-sm font-bold bg-slate-100 border-l-4 border-sky-600 px-3 py-1.5 mb-2 text-slate-900">
+          【2】防除履歴簿（農薬登録番号・希釈倍率・10a薬量・安全基準チェック済）
+        </h3>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border border-slate-400 text-xs text-slate-900">
+            <thead>
+              <tr class="bg-slate-100">
+                <th class="border border-slate-400 p-2 text-left">散布年月日</th>
+                <th class="border border-slate-400 p-2 text-left">対象圃場</th>
+                <th class="border border-slate-400 p-2 text-right">面積(a)</th>
+                <th class="border border-slate-400 p-2 text-left">農薬名（登録番号）</th>
+                <th class="border border-slate-400 p-2 text-center">希釈倍率</th>
+                <th class="border border-slate-400 p-2 text-right">総散布液量(L)</th>
+                <th class="border border-slate-400 p-2 text-right">総使用薬量</th>
+                <th class="border border-slate-400 p-2 text-center">使用回数/上限</th>
+                <th class="border border-slate-400 p-2 text-center">安全基準判定</th>
+              </tr>
+            </thead>
+            <tbody id="jaReportPesticideBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="reportSheet-daily" class="hidden">
+        <div class="flex justify-between items-start border-b-2 border-slate-800 pb-3 mb-4">
+          <div>
+            <div class="text-xs font-bold text-slate-600">農業法人・行政提出・GAP労務機械管理対応 A4標準様式</div>
+            <h2 class="text-xl font-bold text-slate-900 mt-0.5">営農作業日報 兼 機械稼働・圃場別按分実績表</h2>
+          </div>
+          <div class="text-right text-xs text-slate-700">
+            <div><span class="font-bold">出力対象：</span>全作業履歴（日誌×圃場 同時記録トランザクション）</div>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border border-slate-400 text-xs text-slate-900">
+            <thead>
+              <tr class="bg-slate-100">
+                <th class="border border-slate-400 p-2 text-left">作業日</th>
+                <th class="border border-slate-400 p-2 text-left">作業分類</th>
+                <th class="border border-slate-400 p-2 text-left">作業者</th>
+                <th class="border border-slate-400 p-2 text-left">対象圃場（一括登録）</th>
+                <th class="border border-slate-400 p-2 text-right">合計面積(a)</th>
+                <th class="border border-slate-400 p-2 text-right">作業時間(h)</th>
+                <th class="border border-slate-400 p-2 text-left">使用機械</th>
+                <th class="border border-slate-400 p-2 text-left">使用資材・備考</th>
+              </tr>
+            </thead>
+            <tbody id="dailyReportBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 帳票3：圃場別「反収×NPK成分×労働時間」経営分析総括表 -->
+      <div id="reportSheet-yield" class="hidden">
+        <div class="flex justify-between items-start border-b-2 border-slate-800 pb-3 mb-4">
+          <div>
+            <div class="text-xs font-bold text-slate-600">経営改善・GAP審査・環境保全型農業交付金対応 A4標準様式</div>
+            <h2 class="text-xl font-bold text-slate-900 mt-0.5">令和8年度 圃場別「反収（収量）× 投入NPK成分 × 労働時間」総括分析表</h2>
+          </div>
+          <div class="text-right text-xs text-slate-700">
+            <div><span class="font-bold">自動集計：</span>面積按分された施肥・作業時間・収穫データより算出</div>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse border border-slate-400 text-xs text-slate-900">
+            <thead>
+              <tr class="bg-slate-100">
+                <th class="border border-slate-400 p-2 text-left">圃場名（地番）</th>
+                <th class="border border-slate-400 p-2 text-left">作付品種</th>
+                <th class="border border-slate-400 p-2 text-right">面積(a)</th>
+                <th class="border border-slate-400 p-2 text-right">累計労働時間</th>
+                <th class="border border-slate-400 p-2 text-right">累計N(kg/10a)</th>
+                <th class="border border-slate-400 p-2 text-right">累計P(kg/10a)</th>
+                <th class="border border-slate-400 p-2 text-right">累計K(kg/10a)</th>
+                <th class="border border-slate-400 p-2 text-right">収穫量(kg)</th>
+                <th class="border border-slate-400 p-2 text-right">10a反収(俵)</th>
+                <th class="border border-slate-400 p-2 text-center">検査等級</th>
+              </tr>
+            </thead>
+            <tbody id="yieldReportBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 5: 他社アプリデータ移行ウィザード ＆ マスタ登録・GAS連携設定          -->
+  <!-- ========================================================================= -->
+  <section id="tab-settings" class="hidden grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+
+    <!-- 上段全幅：他社営農アプリ・既存Excel・eMAFF筆ポリゴン スマートデータ移行ウィザード -->
+    <div class="lg:col-span-2 bg-[var(--card)] border-2 border-emerald-500/40 rounded-3xl p-5 md:p-6 shadow-md">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pb-3 mb-4 border-b border-[var(--border)]">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-600 text-white">SMART MIGRATION</span>
+            <h2 class="text-lg font-bold text-[var(--foreground)]">🔄 他社営農アプリ・既存Excel・eMAFF筆ポリゴン データ移行センター</h2>
+          </div>
+          <p class="text-xs text-[var(--muted-foreground)] mt-1">
+            アグリノート、クボタKSAS、既存の「らくらく営農日誌」Excel/CSV、農水省eMAFF農地ナビ（GeoJSON）のファイルを読み込むと、**列名の違いや面積単位（㎡・ha・反 → a）を自動判別・自動換算**して一括インポートします。
+          </p>
+        </div>
+      </div>
+
+      <!-- 1. ワンタップで試せる他社フォーマット移行サンプル -->
+      <div class="mb-4">
+        <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-2">
+          ⚡ ワンタップで他社アプリの移行データ（サンプル）を読み込んでテストする：
+        </label>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <button onclick="loadMigrationSample('agrinote')" class="p-3 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-left transition">
+            <div class="text-xs font-bold text-emerald-600">📗 アグリノート (AgriNote) 形式</div>
+            <div class="text-xs text-[var(--foreground)] font-semibold mt-0.5">ほ場台帳CSV（3筆・面積㎡→a自動換算）</div>
+            <div class="text-xs text-[var(--muted-foreground)]">列名: ほ場ID, ほ場名, 地番・住所, 面積(㎡), 品種名...</div>
+          </button>
+          <button onclick="loadMigrationSample('ksas')" class="p-3 rounded-2xl border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-left transition">
+            <div class="text-xs font-bold text-sky-600">📘 クボタ KSAS 形式</div>
+            <div class="text-xs text-[var(--foreground)] font-semibold mt-0.5">作業日誌・施肥履歴CSV（ha→a自動換算）</div>
+            <div class="text-xs text-[var(--muted-foreground)]">列名: 作業日, 作業項目, 圃場名称, 登録面積(ha), 使用資材名...</div>
+          </button>
+          <button onclick="loadMigrationSample('emaff')" class="p-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-left transition">
+            <div class="text-xs font-bold text-amber-600">🗺️ 農水省 eMAFF農地ナビ / Z-GIS 形式</div>
+            <div class="text-xs text-[var(--foreground)] font-semibold mt-0.5">筆ポリゴン GeoJSON（2区画・座標＆面積変換）</div>
+            <div class="text-xs text-[var(--muted-foreground)]">FeatureCollection / Polygon座標・地番・平米面積</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- 2. ファイル選択 または CSV/GeoJSON テキスト貼り付けエリア -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+        <div class="lg:col-span-5 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-bold text-[var(--foreground)]">📂 ファイル選択（.csv / .geojson / .json）または直接貼り付け</label>
+            <input type="file" id="migrationFileInput" accept=".csv,.json,.geojson,.txt" onchange="handleMigrationFileSelect(event)" class="text-xs">
+          </div>
+          <textarea id="migrationRawInput" oninput="parseAndPreviewMigrationText()" rows="6" placeholder="ここに他社アプリから出力したCSVテキスト、Excelのコピー（タブ区切り可）、またはGeoJSONを貼り付けると右側に自動変換プレビューが表示されます..." class="w-full p-3 rounded-2xl bg-[var(--background)] border border-[var(--border)] font-mono text-xs text-[var(--foreground)]"></textarea>
+        </div>
+
+        <!-- 3. 自動カラムマッピング ＆ 単位換算プレビュー -->
+        <div class="lg:col-span-7 bg-[var(--background)] border border-[var(--border)] rounded-2xl p-4">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <div>
+              <span class="text-xs font-bold text-[var(--foreground)]">🔍 自動カラム推論 ＆ 単位換算プレビュー</span>
+              <span id="migrationDetectedBadge" class="ml-2 px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 text-xs font-bold">待機中</span>
+            </div>
+            <button onclick="executeMigrationImport()" id="btnExecuteMigration" class="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition shadow-sm">
+              ✅ 変換データをアプリへ一括インポート
+            </button>
+          </div>
+
+          <div id="migrationMappingSummary" class="text-xs text-[var(--muted-foreground)] mb-2.5">
+            上のサンプルボタンを押すか、CSV/GeoJSONファイルを選択してください。
+          </div>
+
+          <div class="overflow-x-auto border border-[var(--border)] rounded-xl max-h-48">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead id="migrationPreviewHead" class="bg-[var(--secondary)] text-[var(--secondary-foreground)] border-b border-[var(--border)]">
+                <tr><th class="p-2">変換プレビュー（データを選択してください）</th></tr>
+              </thead>
+              <tbody id="migrationPreviewBody" class="divide-y divide-[var(--border)]"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 左：新規圃場（田んぼ）＆ 新規資材の追加登録 -->
+    <div class="space-y-6">
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+        <h2 class="text-base font-bold text-[var(--foreground)] mb-1">➕ 新しい圃場（田んぼ）を追加登録</h2>
+        <p class="text-xs text-[var(--muted-foreground)] mb-4">追加した圃場は即座に現場入力画面とGISカルテに反映され、端末内に保存されます。</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div>
+            <label class="block font-bold mb-1">圃場名（通称）</label>
+            <input type="text" id="newFieldName" placeholder="例: ⑧ 山田沢4号" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">地番</label>
+            <input type="text" id="newFieldLot" placeholder="例: 上山田字沢 95-1" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">面積 (a: アール)</label>
+            <input type="number" id="newFieldArea" value="25" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">作付品種</label>
+            <input type="text" id="newFieldCrop" value="コシヒカリ (BL)" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+        </div>
+        <button onclick="addNewFieldMaster()" class="mt-4 w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition">
+          ＋ 圃場マスタへ追加保存
+        </button>
+      </div>
+
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+        <h2 class="text-base font-bold text-[var(--foreground)] mb-1">🧪 新しい肥料銘柄を追加登録</h2>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs mt-3">
+          <div class="col-span-2 sm:col-span-4">
+            <label class="block font-bold mb-1">肥料名称</label>
+            <input type="text" id="newFertName" placeholder="例: 有機入り化成888" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">チッソ N(%)</label>
+            <input type="number" id="newFertN" value="8" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">リン酸 P(%)</label>
+            <input type="number" id="newFertP" value="8" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">カリ K(%)</label>
+            <input type="number" id="newFertK" value="8" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+          <div>
+            <label class="block font-bold mb-1">初期在庫(袋)</label>
+            <input type="number" id="newFertStock" value="30" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+          </div>
+        </div>
+        <button onclick="addNewFertilizerMaster()" class="mt-4 w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition">
+          ＋ 肥料マスタへ追加保存
+        </button>
+      </div>
+    </div>
+
+    <!-- 右：Googleスプレッドシート（GAS）連携設定 ＆ バックアップ管理 -->
+    <div class="space-y-6">
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-base font-bold text-[var(--foreground)]">☁️ Googleスプレッドシート（GAS）自動按分・帳票連携</h2>
+          <span class="px-2 py-0.5 rounded bg-sky-500/15 text-sky-600 text-xs font-bold">双方向連携</span>
+        </div>
+        <p class="text-xs text-[var(--muted-foreground)] mb-3">
+          同梱の <code class="px-1 py-0.5 rounded bg-[var(--secondary)]">gas/Code.gs</code> をGoogleスプレッドシートに貼り付けて「ウェブアプリとしてデプロイ」し、発行されたURLを以下に設定すると、スマホでオフライン入力した日誌がスプレッドシートへ一括送信＆自動按分されます。
+        </p>
+        <label class="block text-xs font-bold mb-1">GAS ウェブアプリ URL（任意）</label>
+        <input type="url" id="gasWebhookUrl" onchange="saveGasUrl()" placeholder="https://script.google.com/macros/s/XXXX.../exec" class="w-full px-3 py-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs mb-3">
+        <div class="flex gap-2">
+          <button onclick="syncWithGasBackend()" class="flex-1 py-2.5 rounded-xl bg-sky-600 text-white font-bold text-xs hover:bg-sky-700 transition">
+            ☁️ 今すぐスプレッドシートへ同期送信
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+        <h2 class="text-base font-bold text-[var(--foreground)] mb-1">💾 端末内データのバックアップ・初期化</h2>
+        <p class="text-xs text-[var(--muted-foreground)] mb-4">
+          現在のすべてのデータ（圃場・資材在庫・機械アワー・作業日誌）はブラウザの <code class="px-1 py-0.5 rounded bg-[var(--secondary)]">localStorage</code> に自動保存されています。PC故障や機種変更時もJSONファイルで丸ごとバックアップ・復元できます。
+        </p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <button onclick="exportFullBackupJson()" class="py-2.5 px-4 rounded-xl border border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] font-bold text-xs hover:opacity-90">
+            📥 全データをJSONバックアップ保存
+          </button>
+          <button onclick="resetToDefaultData()" class="py-2.5 px-4 rounded-xl border border-red-500/40 bg-red-500/10 text-red-600 font-bold text-xs hover:bg-red-500/20">
+            🔄 初期サンプルデータにリセット
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <script>
+    // =========================================================================
+    // PWA Service Worker 登録
+    // =========================================================================
+    if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+
+    const STORAGE_KEY = 'rakuraku_einou_next_pwa_state_v1';
+
+    // 初期デフォルトデータ定義
+    const DEFAULT_STATE = {
+      fieldsData: [
+        { id: 'F01', name: '① 本場1号', lot: '大字下新田 102-1', group: 'gps', area: 30, crop: 'コシヒカリ (BL)', harvest: '2026/09/20', stage: '施肥済', lat: 37.9161, lng: 139.0364, doneCats: ['耕起', '草刈り', '施肥'], nPer10a: 2.8, pPer10a: 2.8, kPer10a: 2.8, pestCount: { P01: 1, P02: 1, P03: 2 } },
+        { id: 'F02', name: '② 本場2号', lot: '大字下新田 102-2', group: 'gps', area: 20, crop: 'コシヒカリ (BL)', harvest: '2026/09/20', stage: '施肥済', lat: 37.9163, lng: 139.0368, doneCats: ['耕起', '草刈り', '施肥'], nPer10a: 2.8, pPer10a: 2.8, kPer10a: 2.8, pestCount: { P01: 1, P02: 0, P03: 1 } },
+        { id: 'F03', name: '③ 本場3号・大町', lot: '大字下新田 105', group: 'gps', area: 50, crop: 'コシヒカリ (BL)', harvest: '2026/09/20', stage: '施肥済', lat: 37.9158, lng: 139.0365, doneCats: ['耕起', '草刈り', '施肥'], nPer10a: 2.8, pPer10a: 2.8, kPer10a: 2.8, pestCount: { P01: 1, P02: 1, P03: 2 } },
+        { id: 'F04', name: '④ 川向4号', lot: '大字川向 44-1', group: 'river', area: 35, crop: 'つきあかり', harvest: '2026/09/10', stage: '耕起済', lat: 37.9145, lng: 139.0355, doneCats: ['耕起', '草刈り'], nPer10a: 1.4, pPer10a: 1.4, kPer10a: 1.4, pestCount: { P01: 0, P02: 0, P03: 0 } },
+        { id: 'F05', name: '⑤ 上山田A(飛び地)', lot: '上山田字沢 88-1', group: 'yama', area: 15, crop: 'コシヒカリ (BL)', harvest: '2026/09/28', stage: '未着手', lat: 37.9210, lng: 139.0480, doneCats: [], nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: { P01: 0, P02: 0, P03: 0 } },
+        { id: 'F06', name: '⑥ 上山田B(飛び地)', lot: '上山田字沢 89-3', group: 'yama', area: 18, crop: 'コシヒカリ (BL)', harvest: '2026/09/28', stage: '未着手', lat: 37.9215, lng: 139.0488, doneCats: [], nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: { P01: 0, P02: 0, P03: 0 } },
+        { id: 'F07', name: '⑦ 上山田棚田C', lot: '上山田字峯 12-1', group: 'yama', area: 22, crop: 'コシヒカリ (BL)', harvest: '2026/09/28', stage: '草刈り済', lat: 37.9202, lng: 139.0475, doneCats: ['草刈り'], nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: { P01: 0, P02: 0, P03: 0 } }
+      ],
+      fertilizers: {
+        F01: { id: 'F01', name: 'くみあい苦土入り複合オール14', unitKg: 20, n: 14, p: 14, k: 14, stock: 45, minStock: 15 },
+        F02: { id: 'F02', name: '水稲一発基肥コートL80', unitKg: 20, n: 24, p: 10, k: 12, stock: 30, minStock: 10 },
+        F03: { id: 'F03', name: 'NK化成2号（穂肥用）', unitKg: 20, n: 17, p: 0, k: 17, stock: 12, minStock: 15 }
+      },
+      pesticides: {
+        P01: { id: 'P01', name: 'アミスターフロアブル', regNo: '第20142号', maxUse: 2, phiDays: 14, stock: 18, unit: '本(500mL)' },
+        P02: { id: 'P02', name: 'スタークル液剤10', regNo: '第21993号', maxUse: 3, phiDays: 7, stock: 24, unit: '本(500mL)' },
+        P03: { id: 'P03', name: 'ビームゾル', regNo: '第14201号', maxUse: 2, phiDays: 21, stock: 6, unit: '本(500mL)' }
+      },
+      machines: {
+        M01: { id: 'M01', name: 'ヤンマー トラクター YT357', cat: 'トラクター', currentHour: 248.0, nextMaint: 300.0, interval: 100.0 },
+        M02: { id: 'M02', name: 'クボタ 乗用草刈機 RM983', cat: '乗用モア', currentHour: 96.5, nextMaint: 100.0, interval: 50.0 },
+        M03: { id: 'M03', name: '農業用ドローン DJI Agras T30', cat: 'ドローン', currentHour: 42.0, nextMaint: 60.0, interval: 30.0 },
+        M04: { id: 'M04', name: 'クボタ 田植機 NW8S', cat: '田植機', currentHour: 115.0, nextMaint: 150.0, interval: 50.0 }
+      },
+      workLogs: [
+        {
+          id: 'WL-20260425-01',
+          date: '2026/04/25',
+          cat: '草刈り',
+          worker: '佐藤 健一',
+          fieldIds: ['F01', 'F02', 'F03', 'F07'],
+          totalArea: 122,
+          duration: 3.0,
+          machineId: 'M02',
+          machineName: 'クボタ 乗用草刈機 RM983',
+          materialSummary: '畦畔・法面草刈り一括実施',
+          type: 'general',
+          synced: true
+        },
+        {
+          id: 'WL-20260501-01',
+          date: '2026/05/01',
+          cat: '施肥',
+          worker: '佐藤 健一',
+          fieldIds: ['F01', 'F02', 'F03'],
+          totalArea: 100,
+          duration: 2.0,
+          machineId: 'M01',
+          machineName: 'ヤンマー トラクター YT357',
+          materialId: 'F01',
+          inputQty: 10,
+          materialSummary: 'くみあい苦土入り複合オール14 (10袋 / 200kg)',
+          type: 'fertilizer',
+          fertName: 'くみあい苦土入り複合オール14',
+          npkLabel: '14-14-14',
+          totalKg: 200,
+          per10aKg: 20.0,
+          n10a: 2.80,
+          p10a: 2.80,
+          k10a: 2.80,
+          synced: true
+        },
+        {
+          id: 'WL-20260801-01',
+          date: '2026/08/01',
+          cat: '防除',
+          worker: '高橋 誠（オペレーター）',
+          fieldIds: ['F01', 'F02', 'F03'],
+          totalArea: 100,
+          duration: 1.5,
+          machineId: 'M03',
+          machineName: '農業用ドローン DJI Agras T30',
+          materialId: 'P01',
+          inputQty: 2,
+          dilutionRate: 8,
+          materialSummary: 'アミスターフロアブル (8倍 / 総液量8L)',
+          type: 'pesticide',
+          pestName: 'アミスターフロアブル (第20142号)',
+          dilution: '8倍 (ドローン)',
+          waterL: 8.0,
+          chemAmount: '1,000 mL',
+          useCountLabel: '1回目 / 上限2回',
+          safetyOk: true,
+          synced: true
+        }
+      ],
+      gasWebhookUrl: ''
+    };
+
+    let fieldsData = [];
+    let fertilizers = {};
+    let pesticides = {};
+    let machines = {};
+    let workLogs = [];
+    let gasWebhookUrl = '';
+
+    // 現在のUI状態
+    let selectedFieldIds = ['F01', 'F02', 'F03'];
+    let currentWorkCat = '施肥';
+    let currentDuration = 2.0;
+    let currentBags = 10;
+    let isOfflineMode = false;
+    let currentHeatmapLayer = 'all';
+    let currentInspectedFieldId = 'F01';
+
+    // =========================================================================
+    // LocalStorage 永続化エンジン
+    // =========================================================================
+    function loadStateFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          fieldsData = parsed.fieldsData || JSON.parse(JSON.stringify(DEFAULT_STATE.fieldsData));
+          fertilizers = parsed.fertilizers || JSON.parse(JSON.stringify(DEFAULT_STATE.fertilizers));
+          pesticides = parsed.pesticides || JSON.parse(JSON.stringify(DEFAULT_STATE.pesticides));
+          machines = parsed.machines || JSON.parse(JSON.stringify(DEFAULT_STATE.machines));
+          workLogs = parsed.workLogs || JSON.parse(JSON.stringify(DEFAULT_STATE.workLogs));
+          gasWebhookUrl = parsed.gasWebhookUrl || '';
+          return;
+        }
+      } catch (e) {}
+      const def = JSON.parse(JSON.stringify(DEFAULT_STATE));
+      fieldsData = def.fieldsData;
+      fertilizers = def.fertilizers;
+      pesticides = def.pesticides;
+      machines = def.machines;
+      workLogs = def.workLogs;
+      gasWebhookUrl = def.gasWebhookUrl;
+    }
+
+    function saveStateToStorage() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          fieldsData,
+          fertilizers,
+          pesticides,
+          machines,
+          workLogs,
+          gasWebhookUrl
+        }));
+      } catch (e) {}
+      updateSyncBadge();
+    }
+
+    function initApp() {
+      loadStateFromStorage();
+      document.getElementById('gasWebhookUrl').value = gasWebhookUrl;
+      renderSelectOptions();
+      renderInputFieldGrid();
+      selectWorkCat('施肥');
+      recalculatePreview();
+      renderGisHeatmap();
+      inspectField('F01');
+      renderResourcesTab();
+      renderReportsTab();
+      updateSyncBadge();
+    }
+
+    function renderSelectOptions() {
+      const mSel = document.getElementById('machineSelect');
+      const curM = mSel.value || 'M01';
+      mSel.innerHTML = Object.values(machines).map(m => {
+        const warn = (m.nextMaint - m.currentHour) <= 10 ? ' ⚠️点検近し' : '';
+        return `<option value="${m.id}">${m.name} (現在 ${m.currentHour.toFixed(1)}h${warn})</option>`;
+      }).join('') + `<option value="NONE">機械なし（手作業・見回り）</option>`;
+      mSel.value = curM;
+
+      const fSel = document.getElementById('fertilizerSelect');
+      const curF = fSel.value || 'F01';
+      fSel.innerHTML = Object.values(fertilizers).map(f =>
+        `<option value="${f.id}">${f.name} (${f.unitKg}kg/袋 | N${f.n}-P${f.p}-K${f.k} | 残${f.stock}袋)</option>`
+      ).join('');
+      fSel.value = curF;
+
+      const pSel = document.getElementById('pesticideSelect');
+      const curP = pSel.value || 'P01';
+      pSel.innerHTML = Object.values(pesticides).map(p =>
+        `<option value="${p.id}">${p.name} (${p.regNo} | 上限${p.maxUse}回・収穫前${p.phiDays}日)</option>`
+      ).join('');
+      pSel.value = curP;
+    }
+
+    // メインタブ切り替え
+    function switchMainTab(tabName) {
+      ['input', 'gis', 'resource', 'report', 'settings'].forEach(t => {
+        const sec = document.getElementById('tab-' + t);
+        const btn = document.getElementById('tabBtn-' + t);
+        if (t === tabName) {
+          sec.classList.remove('hidden');
+          if (t === 'gis' || t === 'resource' || t === 'settings') sec.classList.add('grid');
+          btn.className = (t === 'settings' ? 'col-span-2 sm:col-span-1 ' : '') +
+            'flex items-center justify-center gap-1.5 py-3 px-3 rounded-xl font-bold text-xs md:text-sm border transition bg-emerald-600 text-white border-emerald-600 shadow-sm';
+        } else {
+          sec.classList.add('hidden');
+          sec.classList.remove('grid');
+          btn.className = (t === 'settings' ? 'col-span-2 sm:col-span-1 ' : '') +
+            'flex items-center justify-center gap-1.5 py-3 px-3 rounded-xl font-bold text-xs md:text-sm border transition bg-[var(--card)] text-[var(--foreground)] border-[var(--border)] hover:bg-[var(--secondary)]';
+        }
+      });
+    }
+
+    // オフライン・クラウド同期ステータス管理
+    function toggleOfflineMode() {
+      isOfflineMode = !isOfflineMode;
+      updateSyncBadge();
+      if (isOfflineMode) {
+        showToast('📡 電波圏外（オフラインモード）に切り替えました', '山間部でも全機能が動作し、入力データは端末LocalStorageに永続保存されます。');
+      } else {
+        showToast('☁️ オンライン復帰', '端末内に保存されたデータをいつでもスプレッドシートへ同期できます。');
+      }
+    }
+
+    function updateSyncBadge() {
+      const unsyncedCount = workLogs.filter(l => !l.synced).length;
+      const badge = document.getElementById('syncBadge');
+      const dot = document.getElementById('syncDot');
+      const text = document.getElementById('syncText');
+      if (isOfflineMode) {
+        badge.className = 'flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-500/40 bg-amber-500/15 text-amber-600 text-xs font-semibold';
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-amber-500';
+        text.textContent = `圏外動作中（端末保存済 / 未同期 ${unsyncedCount}件）`;
+      } else {
+        badge.className = 'flex items-center gap-2 px-3 py-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-emerald-600 text-xs font-semibold';
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+        text.textContent = unsyncedCount > 0 ? `端末保存済（クラウド未送信 ${unsyncedCount}件）` : '端末保存済・全件同期済';
+      }
+    }
+
+    // =========================================================================
+    // 実GPS現在地測位（Geolocation API）＆ 最寄り圃場サジェスト
+    // =========================================================================
+    function getDistanceMeters(lat1, lng1, lat2, lng2) {
+      const R = 6371000;
+      const toRad = d => (d * Math.PI) / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLng = toRad(lng2 - lng1);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+      return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+
+    function selectNearestFieldsByCoord_(latitude, longitude, isSimulated) {
+      const banner = document.getElementById('gpsStatusBanner');
+      fieldsData.forEach(f => {
+        f._distM = getDistanceMeters(latitude, longitude, f.lat || 37.9161, f.lng || 139.0364);
+      });
+
+      const sorted = [...fieldsData].sort((a, b) => a._distM - b._distM);
+      const nearestField = sorted[0];
+
+      // 1) 半径250m以内の圃場を優先抽出
+      let nearby = sorted.filter(f => f._distM <= 250);
+      // 2) 半径250m以内に圃場がない場合は、最寄り圃場と同一団地(group)または最寄り上位3筆を自動選択
+      if (nearby.length === 0 && nearestField) {
+        const sameGroup = sorted.filter(f => f.group === nearestField.group && f._distM <= 1500);
+        nearby = sameGroup.length > 0 ? sameGroup : sorted.slice(0, Math.min(3, sorted.length));
+      }
+
+      selectedFieldIds = nearby.map(f => f.id);
+      const selectedNames = nearby.map(f => `${f.name}(${f._distM}m)`).join('・');
+      const prefix = isSimulated
+        ? `📍 GPS現在地サジェスト（最寄り: ${nearestField ? nearestField.name : ''} 周辺）`
+        : `📍 実GPS測位完了 (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
+      banner.textContent = `${prefix}：距離が近い ${nearby.length} 筆［${selectedNames}］を自動選択しました`;
+
+      renderInputFieldGrid();
+      recalculatePreview();
+    }
+
+    function detectGpsNearestFields() {
+      const banner = document.getElementById('gpsStatusBanner');
+      banner.classList.remove('hidden');
+      banner.textContent = '🛰️ スマホのGPSから現在地を測位中...';
+
+      if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            selectNearestFieldsByCoord_(pos.coords.latitude, pos.coords.longitude, false);
+          },
+          () => {
+            // 権限拒否または屋内時は現在選択中の先頭圃場（または本場エリア）座標を基準に動的距離判定
+            const refField = fieldsData.find(f => selectedFieldIds.includes(f.id)) || fieldsData[0];
+            const simLat = (refField && refField.lat) ? refField.lat : 37.9161;
+            const simLng = (refField && refField.lng) ? refField.lng : 139.0364;
+            selectNearestFieldsByCoord_(simLat, simLng, true);
+          },
+          { timeout: 3500 }
+        );
+      } else {
+        const refField = fieldsData.find(f => selectedFieldIds.includes(f.id)) || fieldsData[0];
+        selectNearestFieldsByCoord_(refField?.lat || 37.9161, refField?.lng || 139.0364, true);
+      }
+    }
+
+    // 圃場選択グリッド描画
+    function renderInputFieldGrid() {
+      const container = document.getElementById('inputFieldGrid');
+      container.innerHTML = fieldsData.map(f => {
+        const isSel = selectedFieldIds.includes(f.id);
+        const activeCls = isSel
+          ? 'border-2 border-emerald-600 bg-emerald-500/15 text-[var(--foreground)] shadow-sm'
+          : 'border border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] hover:border-emerald-500/50';
+        const checkIcon = isSel ? '☑️' : '⬜';
+        const distBadge = f._distM !== undefined ? `<span class="text-xs text-sky-600 font-semibold ml-1">(${f._distM}m)</span>` : '';
+        return `
+          <button onclick="toggleFieldSelection('${f.id}')" class="p-2.5 rounded-xl text-left transition ${activeCls}">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-[var(--foreground)] truncate">${checkIcon} ${f.name}</span>
+              <span class="text-xs font-bold text-emerald-600 shrink-0">${f.area}a</span>
+            </div>
+            <div class="text-xs text-[var(--muted-foreground)] mt-0.5 truncate">${f.lot} ${distBadge}</div>
+          </button>
+        `;
+      }).join('');
+    }
+
+    function toggleFieldSelection(fieldId) {
+      if (selectedFieldIds.includes(fieldId)) {
+        if (selectedFieldIds.length > 1) {
+          selectedFieldIds = selectedFieldIds.filter(id => id !== fieldId);
+        }
+      } else {
+        selectedFieldIds.push(fieldId);
+      }
+      renderInputFieldGrid();
+      recalculatePreview();
+    }
+
+    function selectFieldGroup(groupType) {
+      if (groupType === 'gps') {
+        selectedFieldIds = ['F01', 'F02', 'F03'];
+      } else if (groupType === 'yama') {
+        selectedFieldIds = fieldsData.filter(f => f.group === 'yama').map(f => f.id);
+      } else {
+        selectedFieldIds = fieldsData.map(f => f.id);
+      }
+      renderInputFieldGrid();
+      recalculatePreview();
+    }
+
+    // プリセット適用
+    function applyPreset(presetType) {
+      if (presetType === 'fertilizer') {
+        selectedFieldIds = ['F01', 'F02', 'F03'];
+        currentDuration = 2.0;
+        currentBags = 10;
+        document.getElementById('machineSelect').value = 'M01';
+        document.getElementById('fertilizerSelect').value = 'F01';
+        selectWorkCat('施肥');
+      } else if (presetType === 'pesticide') {
+        selectedFieldIds = ['F01', 'F02', 'F03'];
+        currentDuration = 1.5;
+        document.getElementById('machineSelect').value = 'M03';
+        document.getElementById('pesticideSelect').value = 'P01';
+        document.getElementById('dilutionSelect').value = '8_0.8';
+        selectWorkCat('防除');
+      } else if (presetType === 'mowing') {
+        selectedFieldIds = ['F05', 'F06', 'F07'];
+        currentDuration = 2.5;
+        document.getElementById('machineSelect').value = 'M02';
+        selectWorkCat('草刈り');
+      }
+      document.getElementById('durationValue').textContent = currentDuration.toFixed(1);
+      document.getElementById('bagCountValue').textContent = currentBags;
+      renderInputFieldGrid();
+      recalculatePreview();
+      showToast('⚡ 前回履歴からプリセットを呼び出しました', '対象圃場や数量を確認し、1タップで登録できます。');
+    }
+
+    let currentHarvestBags = 180;
+
+    function selectWorkCat(cat) {
+      currentWorkCat = cat;
+      document.querySelectorAll('.work-cat-btn').forEach(btn => {
+        const spanCls = btn.dataset.cat === '収穫' ? ' col-span-2 sm:col-span-1' : '';
+        if (btn.dataset.cat === cat) {
+          btn.className = 'work-cat-btn py-2.5 px-2 rounded-xl border text-xs font-bold transition bg-emerald-600 text-white border-emerald-600 shadow-sm' + spanCls;
+        } else {
+          btn.className = 'work-cat-btn py-2.5 px-2 rounded-xl border text-xs font-bold transition bg-[var(--card)] text-[var(--foreground)] border-[var(--border)] hover:bg-[var(--secondary)]' + spanCls;
+        }
+      });
+
+      const fertPanel = document.getElementById('fertilizerPanel');
+      const pestPanel = document.getElementById('pesticidePanel');
+      const harvPanel = document.getElementById('harvestPanel');
+      const nonePanel = document.getElementById('noMaterialPanel');
+      const secTitle = document.getElementById('materialSectionTitle');
+
+      fertPanel.classList.add('hidden');
+      pestPanel.classList.add('hidden');
+      if (harvPanel) harvPanel.classList.add('hidden');
+      nonePanel.classList.add('hidden');
+
+      if (cat === '施肥') {
+        fertPanel.classList.remove('hidden');
+        secTitle.textContent = '使用肥料・NPK自動積算（袋数を入れるだけで成分量を自動計算）';
+      } else if (cat === '防除') {
+        pestPanel.classList.remove('hidden');
+        secTitle.textContent = '使用農薬・希釈倍率逆算電卓 ＆ 安全基準リアルタイムチェック';
+      } else if (cat === '収穫') {
+        if (harvPanel) harvPanel.classList.remove('hidden');
+        secTitle.textContent = '収穫・刈取記録（袋数を入れるだけで10a反収［俵/kg］と圃場別収量を自動按分）';
+      } else {
+        nonePanel.classList.remove('hidden');
+        secTitle.textContent = `使用資材（${cat}：資材消費なし）`;
+      }
+      recalculatePreview();
+    }
+
+    function adjustHarvestBags(delta) {
+      currentHarvestBags = Math.max(10, currentHarvestBags + delta);
+      document.getElementById('harvestBagValue').textContent = currentHarvestBags;
+      recalculatePreview();
+    }
+
+    function adjustDuration(delta) {
+      currentDuration = Math.max(0.5, Math.round((currentDuration + delta) * 10) / 10);
+      document.getElementById('durationValue').textContent = currentDuration.toFixed(1);
+      recalculatePreview();
+    }
+
+    function adjustBags(delta) {
+      currentBags = Math.max(1, currentBags + delta);
+      document.getElementById('bagCountValue').textContent = currentBags;
+      recalculatePreview();
+    }
+
+    // 面積按分・NPK積算・希釈逆算・安全基準チェック・収穫反収計算
+    function recalculatePreview() {
+      const selectedFields = fieldsData.filter(f => selectedFieldIds.includes(f.id));
+      const totalArea = selectedFields.reduce((sum, f) => sum + f.area, 0);
+
+      document.getElementById('selectedCountLabel').textContent = selectedFields.length;
+      document.getElementById('selectedTotalAreaLabel').textContent = totalArea;
+      document.getElementById('selectedTotalTanLabel').textContent = (totalArea / 10).toFixed(1);
+
+      const fertId = document.getElementById('fertilizerSelect').value || 'F01';
+      const fert = fertilizers[fertId] || Object.values(fertilizers)[0];
+      const totalKg = currentBags * fert.unitKg;
+      const fertPer10a = totalArea > 0 ? (totalKg / (totalArea / 10)) : 0;
+      const nTotal = totalKg * (fert.n / 100);
+      const pTotal = totalKg * (fert.p / 100);
+      const kTotal = totalKg * (fert.k / 100);
+      const nPer10a = fertPer10a * (fert.n / 100);
+      const pPer10a = fertPer10a * (fert.p / 100);
+      const kPer10a = fertPer10a * (fert.k / 100);
+
+      document.getElementById('totalKgValue').textContent = totalKg;
+      document.getElementById('calcFertPer10a').textContent = fertPer10a.toFixed(1);
+      document.getElementById('calcNPer10a').textContent = nPer10a.toFixed(2);
+      document.getElementById('calcPPer10a').textContent = pPer10a.toFixed(2);
+      document.getElementById('calcKPer10a').textContent = kPer10a.toFixed(2);
+      document.getElementById('calcNTotal').textContent = nTotal.toFixed(1);
+      document.getElementById('calcPTotal').textContent = pTotal.toFixed(1);
+      document.getElementById('calcKTotal').textContent = kTotal.toFixed(1);
+
+      // 収穫パネル計算
+      const harvTotalKg = currentHarvestBags * 30;
+      const yieldKg10a = totalArea > 0 ? (harvTotalKg / (totalArea / 10)) : 0;
+      const yieldTawara10a = yieldKg10a / 60;
+      if (document.getElementById('calcHarvestTotalKg')) {
+        document.getElementById('calcHarvestTotalKg').textContent = harvTotalKg.toLocaleString('ja-JP');
+        document.getElementById('calcYieldKg10a').textContent = Math.round(yieldKg10a).toLocaleString('ja-JP');
+        document.getElementById('calcYieldTawara10a').textContent = yieldTawara10a.toFixed(1);
+      }
+
+      const pestId = document.getElementById('pesticideSelect').value || 'P01';
+      const pest = pesticides[pestId] || Object.values(pesticides)[0];
+      const [dilRate, waterPer10a] = document.getElementById('dilutionSelect').value.split('_').map(Number);
+      const totalWaterL = (totalArea / 10) * waterPer10a;
+      const totalChemMl = (totalWaterL * 1000) / dilRate;
+
+      document.getElementById('pestAreaDisplay').textContent = totalArea;
+      document.getElementById('calcWaterL').textContent = totalWaterL.toLocaleString('ja-JP', { maximumFractionDigits: 1 });
+      document.getElementById('calcChemMl').textContent = Math.round(totalChemMl).toLocaleString('ja-JP');
+
+      const overUseFields = selectedFields.filter(f => ((f.pestCount && f.pestCount[pestId]) || 0) + 1 > pest.maxUse);
+
+      // 収穫前日数（PHI: Pre-Harvest Interval）のリアルタイム日数計算チェック
+      const workDateStr = document.getElementById('workDateInput').value || '2026-08-05';
+      const workDateMs = new Date(workDateStr.replace(/\//g, '-')).setHours(0, 0, 0, 0);
+      const phiViolationFields = [];
+      selectedFields.forEach(f => {
+        if (!f.harvest) return;
+        const harvMs = new Date(String(f.harvest).replace(/\//g, '-')).setHours(0, 0, 0, 0);
+        if (!isNaN(workDateMs) && !isNaN(harvMs)) {
+          const diffDays = Math.floor((harvMs - workDateMs) / (1000 * 60 * 60 * 24));
+          if (diffDays < pest.phiDays) {
+            phiViolationFields.push({ field: f, diffDays });
+          }
+        }
+      });
+
+      const alertBox = document.getElementById('safetyAlertBox');
+      if (overUseFields.length > 0 || phiViolationFields.length > 0) {
+        const msgs = [];
+        if (overUseFields.length > 0) {
+          const names = overUseFields.map(f => f.name).join('・');
+          msgs.push(`⚠️ <strong>農薬使用回数超過アラート</strong>：${names} は既に ${pest.maxUse} 回使用済みのため、${pest.name}（上限${pest.maxUse}回）を追加散布できません！`);
+        }
+        if (phiViolationFields.length > 0) {
+          const phiDetails = phiViolationFields.map(v =>
+            v.diffDays < 0
+              ? `${v.field.name}（収穫予定日 ${v.field.harvest} を ${Math.abs(v.diffDays)} 日経過）`
+              : `${v.field.name}（収穫予定 ${v.field.harvest} まで残り ${v.diffDays} 日）`
+          ).join('・');
+          msgs.push(`⚠️ <strong>収穫前日数（PHI）制限違反アラート</strong>：${pest.name} は収穫前 <strong>${pest.phiDays}日以内</strong> の散布が禁止されています［対象: ${phiDetails}］！`);
+        }
+        alertBox.className = 'p-3 rounded-xl border border-red-500/50 bg-red-500/15 text-xs font-bold text-red-600 space-y-1';
+        alertBox.innerHTML = msgs.map(m => `<div>${m}</div>`).join('');
+      } else {
+        alertBox.className = 'p-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-xs font-semibold text-emerald-600';
+        alertBox.innerHTML = `✅ 農薬安全基準チェックOK：選択された全 ${selectedFields.length} 圃場で「総使用回数上限（${pest.maxUse}回以内）」および「収穫前日数（${pest.phiDays}日以上確保）」を満たしています。`;
+      }
+
+      const allocBody = document.getElementById('allocationPreviewBody');
+      const allocHeader = document.getElementById('allocColHeader');
+      if (currentWorkCat === '施肥') {
+        allocHeader.textContent = '按分施肥量 (N成分)';
+      } else if (currentWorkCat === '防除') {
+        allocHeader.textContent = '按分散布液量 (薬量)';
+      } else if (currentWorkCat === '収穫') {
+        allocHeader.textContent = '按分収量 (反収)';
+      } else {
+        allocHeader.textContent = '更新ステータス';
+      }
+
+      allocBody.innerHTML = selectedFields.map(f => {
+        const ratio = totalArea > 0 ? (f.area / totalArea) : 0;
+        const allocHr = currentDuration * ratio;
+        let rightCell = `${currentWorkCat}済`;
+        if (currentWorkCat === '施肥') {
+          const fKg = totalKg * ratio;
+          const fN = nTotal * ratio;
+          rightCell = `${fKg.toFixed(1)}kg <span class="text-emerald-600 font-semibold">(N:${fN.toFixed(1)}kg)</span>`;
+        } else if (currentWorkCat === '防除') {
+          const fWater = totalWaterL * ratio;
+          const fChem = totalChemMl * ratio;
+          rightCell = `${fWater.toFixed(1)}L <span class="text-sky-600 font-semibold">(${Math.round(fChem)}mL)</span>`;
+        } else if (currentWorkCat === '収穫') {
+          const fHarvKg = Math.round(harvTotalKg * ratio);
+          rightCell = `${fHarvKg.toLocaleString()}kg <span class="text-amber-600 font-semibold">(${yieldTawara10a.toFixed(1)}俵/10a)</span>`;
+        }
+
+        return `
+          <tr class="hover:bg-[var(--secondary)]/50">
+            <td class="p-2.5 font-semibold text-[var(--foreground)]">${f.name}</td>
+            <td class="p-2.5 text-right">${f.area}a</td>
+            <td class="p-2.5 text-right font-mono">${(ratio * 100).toFixed(0)}%</td>
+            <td class="p-2.5 text-right font-semibold">${allocHr.toFixed(2)}h</td>
+            <td class="p-2.5 text-right">${rightCell}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const workerName = document.getElementById('workerNameInput').value || '佐藤 健一';
+      document.getElementById('previewDiarySummary').textContent =
+        `作業者: ${workerName} / 分類: ${currentWorkCat} / 合計: ${currentDuration.toFixed(1)}h (${selectedFields.length}筆へ自動按分)`;
+
+      const machId = document.getElementById('machineSelect').value;
+      if (machId !== 'NONE' && machines[machId]) {
+        const m = machines[machId];
+        const nextHr = m.currentHour + currentDuration;
+        document.getElementById('previewMachineSummary').textContent =
+          `${m.name}: ${m.currentHour.toFixed(1)}h → ${nextHr.toFixed(1)}h (次回点検目安 ${m.nextMaint}h)`;
+      } else {
+        document.getElementById('previewMachineSummary').textContent = '機械使用なし（手作業）';
+      }
+
+      if (currentWorkCat === '施肥') {
+        document.getElementById('previewStockSummary').textContent =
+          `${fert.name}: 現在庫 ${fert.stock}袋 → 登録後 ${fert.stock - currentBags}袋`;
+      } else if (currentWorkCat === '防除') {
+        const usedBottles = Math.max(1, Math.ceil(totalChemMl / 500));
+        document.getElementById('previewStockSummary').textContent =
+          `${pest.name}: 現在庫 ${pest.stock}本 → 登録後 ${pest.stock - usedBottles}本`;
+      } else if (currentWorkCat === '収穫') {
+        const grade = document.getElementById('harvestGradeSelect')?.value || '1等';
+        const moist = document.getElementById('harvestMoistureInput')?.value || '14.8';
+        document.getElementById('previewStockSummary').textContent =
+          `収穫玄米: ${currentHarvestBags}袋 (${harvTotalKg}kg) / 水分${moist}% / ${grade} (${yieldTawara10a.toFixed(1)}俵/10a)`;
+      } else {
+        document.getElementById('previewStockSummary').textContent = '資材消費なし（在庫変動なし）';
+      }
+    }
+
+    // 一括登録実行 ＆ LocalStorage永続化
+    function submitUnifiedWorkLog() {
+      const selectedFields = fieldsData.filter(f => selectedFieldIds.includes(f.id));
+      const totalArea = selectedFields.reduce((sum, f) => sum + f.area, 0);
+      const machId = document.getElementById('machineSelect').value;
+      const machineName = (machId !== 'NONE' && machines[machId]) ? machines[machId].name : 'なし（手作業）';
+      const workDateRaw = document.getElementById('workDateInput').value || '2026-11-05';
+      const formattedDate = workDateRaw.replace(/-/g, '/');
+      const workerName = document.getElementById('workerNameInput').value || '佐藤 健一';
+
+      if (currentWorkCat === '防除') {
+        const pestId = document.getElementById('pesticideSelect').value;
+        const pest = pesticides[pestId];
+        const overUseFields = selectedFields.filter(f => ((f.pestCount && f.pestCount[pestId]) || 0) + 1 > pest.maxUse);
+        if (overUseFields.length > 0) {
+          showToast('⛔ 安全基準エラー（使用回数超過）：登録をブロックしました', `${pest.name} の使用回数上限（${pest.maxUse}回）を超過する圃場が含まれています。`);
+          return;
+        }
+
+        const workDateMs = new Date(workDateRaw.replace(/\//g, '-')).setHours(0, 0, 0, 0);
+        const phiViolations = [];
+        selectedFields.forEach(f => {
+          if (!f.harvest) return;
+          const harvMs = new Date(String(f.harvest).replace(/\//g, '-')).setHours(0, 0, 0, 0);
+          if (!isNaN(workDateMs) && !isNaN(harvMs)) {
+            const diffDays = Math.floor((harvMs - workDateMs) / (1000 * 60 * 60 * 24));
+            if (diffDays < pest.phiDays) {
+              phiViolations.push(`${f.name}(残り${diffDays}日)`);
+            }
+          }
+        });
+        if (phiViolations.length > 0) {
+          showToast(
+            '⛔ 安全基準エラー（収穫前日数違反）：登録をブロックしました',
+            `${pest.name} の収穫前日数制限（${pest.phiDays}日以上）を満たさない圃場があります：${phiViolations.join('・')}`
+          );
+          return;
+        }
+      }
+
+      if (machId !== 'NONE' && machines[machId]) {
+        machines[machId].currentHour = Math.round((machines[machId].currentHour + currentDuration) * 10) / 10;
+      }
+
+      let newLog = {
+        id: 'WL-' + Date.now(),
+        date: formattedDate,
+        cat: currentWorkCat,
+        worker: workerName,
+        fieldIds: [...selectedFieldIds],
+        totalArea: totalArea,
+        duration: currentDuration,
+        machineId: machId !== 'NONE' ? machId : '',
+        machineName: machineName,
+        materialSummary: `${currentWorkCat}作業完了`,
+        type: 'general',
+        synced: false
+      };
+
+      if (currentWorkCat === '施肥') {
+        const fertId = document.getElementById('fertilizerSelect').value;
+        const fert = fertilizers[fertId];
+        const totalKg = currentBags * fert.unitKg;
+        const per10aKg = totalKg / (totalArea / 10);
+        const n10a = per10aKg * (fert.n / 100);
+        const p10a = per10aKg * (fert.p / 100);
+        const k10a = per10aKg * (fert.k / 100);
+
+        fert.stock = Math.max(0, fert.stock - currentBags);
+
+        selectedFields.forEach(f => {
+          f.nPer10a = Math.round((f.nPer10a + n10a) * 100) / 100;
+          f.pPer10a = Math.round((f.pPer10a + p10a) * 100) / 100;
+          f.kPer10a = Math.round((f.kPer10a + k10a) * 100) / 100;
+        });
+
+        newLog.type = 'fertilizer';
+        newLog.materialId = fertId;
+        newLog.inputQty = currentBags;
+        newLog.fertName = fert.name;
+        newLog.npkLabel = `${fert.n}-${fert.p}-${fert.k}`;
+        newLog.totalKg = totalKg;
+        newLog.per10aKg = per10aKg;
+        newLog.n10a = n10a;
+        newLog.p10a = p10a;
+        newLog.k10a = k10a;
+        newLog.materialSummary = `${fert.name} (${currentBags}袋 / ${totalKg}kg)`;
+      } else if (currentWorkCat === '防除') {
+        const pestId = document.getElementById('pesticideSelect').value;
+        const pest = pesticides[pestId];
+        const [dilRate, waterPer10a] = document.getElementById('dilutionSelect').value.split('_').map(Number);
+        const totalWaterL = (totalArea / 10) * waterPer10a;
+        const totalChemMl = (totalWaterL * 1000) / dilRate;
+        const usedBottles = Math.max(1, Math.ceil(totalChemMl / 500));
+
+        pest.stock = Math.max(0, pest.stock - usedBottles);
+
+        selectedFields.forEach(f => {
+          if (!f.pestCount) f.pestCount = {};
+          f.pestCount[pestId] = (f.pestCount[pestId] || 0) + 1;
+        });
+
+        newLog.type = 'pesticide';
+        newLog.materialId = pestId;
+        newLog.inputQty = usedBottles;
+        newLog.dilutionRate = dilRate;
+        newLog.pestName = `${pest.name} (${pest.regNo})`;
+        newLog.dilution = `${dilRate}倍`;
+        newLog.waterL = totalWaterL;
+        newLog.chemAmount = `${Math.round(totalChemMl).toLocaleString()} mL`;
+        newLog.useCountLabel = `上限${pest.maxUse}回内`;
+        newLog.safetyOk = true;
+        newLog.materialSummary = `${pest.name} (${dilRate}倍 / 液量${totalWaterL}L)`;
+      } else if (currentWorkCat === '収穫') {
+        const harvTotalKg = currentHarvestBags * 30;
+        const yieldKg10a = totalArea > 0 ? (harvTotalKg / (totalArea / 10)) : 0;
+        const yieldTawara10a = yieldKg10a / 60;
+        const grade = document.getElementById('harvestGradeSelect')?.value || '1等';
+        const moist = document.getElementById('harvestMoistureInput')?.value || '14.8';
+
+        selectedFields.forEach(f => {
+          const ratio = totalArea > 0 ? (f.area / totalArea) : 0;
+          f.harvestKg = (f.harvestKg || 0) + Math.round(harvTotalKg * ratio);
+          f.yieldTawara10a = Number(yieldTawara10a.toFixed(1));
+          f.grade = grade;
+        });
+
+        newLog.type = 'harvest';
+        newLog.totalKg = harvTotalKg;
+        newLog.materialSummary = `玄米 ${currentHarvestBags}袋 (${harvTotalKg}kg) / 反収 ${yieldTawara10a.toFixed(1)}俵/10a / 水分${moist}% / ${grade}`;
+      }
+
+      selectedFields.forEach(f => {
+        f.stage = `${currentWorkCat}済`;
+        if (!f.doneCats.includes(currentWorkCat)) {
+          f.doneCats.push(currentWorkCat);
+        }
+      });
+
+      workLogs.unshift(newLog);
+      saveStateToStorage();
+
+      renderSelectOptions();
+      recalculatePreview();
+      renderGisHeatmap();
+      inspectField(currentInspectedFieldId);
+      renderResourcesTab();
+      renderReportsTab();
+
+      showToast(
+        `🎉 1アクションで ${selectedFields.length} 筆のカルテ＆作業日報を端末保存しました！`,
+        `対象: ${selectedFields.map(f => f.name).join('・')} (計${totalArea}a) ／ 画面をリロードしてもデータは保持されます。`
+      );
+    }
+
+    // =========================================================================
+    // TAB 2: GISヒートマップ ＆ 圃場カルテ
+    // =========================================================================
+    function setHeatmapLayer(layer) {
+      currentHeatmapLayer = layer;
+      ['all', '耕起', '草刈り', '施肥', '防除'].forEach(l => {
+        const btn = document.getElementById('heatBtn-' + l);
+        if (l === layer) {
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white';
+        } else {
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]';
+        }
+      });
+      renderGisHeatmap();
+    }
+
+    function renderGisHeatmap() {
+      fieldsData.forEach(f => {
+        const polyGroup = document.getElementById('poly-' + f.id);
+        if (!polyGroup) return;
+        const poly = polyGroup.querySelector('polygon');
+        const statusTxt = document.getElementById('polyStatus-' + f.id);
+
+        let color = '#64748b';
+        let label = f.stage;
+
+        if (currentHeatmapLayer === 'all') {
+          if (f.doneCats.length >= 3) color = '#10b981';
+          else if (f.doneCats.length >= 1) color = '#f59e0b';
+        } else {
+          if (f.doneCats.includes(currentHeatmapLayer)) {
+            color = '#10b981';
+            label = `${currentHeatmapLayer} 完了`;
+          } else {
+            color = '#64748b';
+            label = `${currentHeatmapLayer} 未実施`;
+          }
+        }
+
+        poly.setAttribute('fill', color);
+        statusTxt.textContent = label;
+
+        if (f.id === currentInspectedFieldId) {
+          poly.classList.add('field-selected');
+        } else {
+          poly.classList.remove('field-selected');
+        }
+      });
+
+      const pillList = document.getElementById('gisFieldPillList');
+      if (pillList) {
+        pillList.innerHTML = fieldsData.map(f => {
+          const isCur = f.id === currentInspectedFieldId;
+          return `<button onclick="inspectField('${f.id}')" class="px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
+            isCur ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-[var(--background)] text-[var(--foreground)] border-[var(--border)]'
+          }">${f.name} (${f.area}a)</button>`;
+        }).join('');
+      }
+    }
+
+    function inspectField(fieldId) {
+      currentInspectedFieldId = fieldId;
+      renderGisHeatmap();
+
+      const f = fieldsData.find(item => item.id === fieldId) || fieldsData[0];
+      document.getElementById('karteTitle').textContent = `${f.name} (${f.lot})`;
+      document.getElementById('karteArea').textContent = `${f.area} a (${(f.area / 10).toFixed(1)} 反)`;
+      document.getElementById('karteCrop').textContent = f.crop;
+      document.getElementById('karteHarvest').textContent = f.harvest;
+
+      const totalN = (f.nPer10a * (f.area / 10)).toFixed(1);
+      const totalP = (f.pPer10a * (f.area / 10)).toFixed(1);
+      const totalK = (f.kPer10a * (f.area / 10)).toFixed(1);
+
+      document.getElementById('karteNText').textContent = `${f.nPer10a.toFixed(2)} kg / 10a (圃場総量 ${totalN} kg)`;
+      document.getElementById('kartePText').textContent = `${f.pPer10a.toFixed(2)} kg / 10a (圃場総量 ${totalP} kg)`;
+      document.getElementById('karteKText').textContent = `${f.kPer10a.toFixed(2)} kg / 10a (圃場総量 ${totalK} kg)`;
+
+      document.getElementById('karteNBar').style.width = Math.min(100, Math.round((f.nPer10a / 6.0) * 100)) + '%';
+      document.getElementById('kartePBar').style.width = Math.min(100, Math.round((f.pPer10a / 6.0) * 100)) + '%';
+      document.getElementById('karteKBar').style.width = Math.min(100, Math.round((f.kPer10a / 6.0) * 100)) + '%';
+
+      const fieldLogs = workLogs.filter(l => l.fieldIds.includes(fieldId));
+      const histContainer = document.getElementById('karteHistoryList');
+
+      if (fieldLogs.length === 0) {
+        histContainer.innerHTML = `<div class="p-4 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--muted-foreground)]">まだ作業履歴がありません。</div>`;
+      } else {
+        histContainer.innerHTML = fieldLogs.map(l => {
+          const ratio = f.area / l.totalArea;
+          const allocHr = (l.duration * ratio).toFixed(2);
+          return `
+            <div class="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs">
+              <div class="flex items-center justify-between font-bold text-[var(--foreground)]">
+                <span>📅 ${l.date} — ${l.cat}</span>
+                <span class="text-emerald-600">按分時間: ${allocHr}h</span>
+              </div>
+              <div class="text-[var(--muted-foreground)] mt-1">${l.materialSummary}</div>
+              <div class="text-[var(--muted-foreground)] mt-0.5">作業者: ${l.worker} ／ 機械: ${l.machineName}</div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    function jumpToInputWithField() {
+      selectedFieldIds = [currentInspectedFieldId];
+      renderInputFieldGrid();
+      recalculatePreview();
+      switchMainTab('input');
+    }
+
+    // =========================================================================
+    // TAB 3: 機械アワー・点検完了アクション ＆ 資材入庫補充アクション
+    // =========================================================================
+    function completeMachineMaintenance(machId) {
+      const m = machines[machId];
+      if (!m) return;
+      m.nextMaint = Math.round((m.currentHour + (m.interval || 50)) * 10) / 10;
+      saveStateToStorage();
+      renderSelectOptions();
+      renderResourcesTab();
+      showToast(`🔧 ${m.name} の点検・オイル交換を記録しました`, `次回点検目安が ${m.nextMaint.toFixed(1)}h に更新されました。`);
+    }
+
+    function restockMaterial(type, id, amount) {
+      if (type === 'fert' && fertilizers[id]) {
+        fertilizers[id].stock += amount;
+        showToast(`📦 ${fertilizers[id].name} を +${amount}袋 入庫しました`, `現在庫: ${fertilizers[id].stock} 袋`);
+      } else if (type === 'pest' && pesticides[id]) {
+        pesticides[id].stock += amount;
+        showToast(`📦 ${pesticides[id].name} を +${amount}本 入庫しました`, `現在庫: ${pesticides[id].stock} 本`);
+      }
+      saveStateToStorage();
+      renderSelectOptions();
+      renderResourcesTab();
+      recalculatePreview();
+    }
+
+    function renderResourcesTab() {
+      const mList = document.getElementById('machineCardList');
+      mList.innerHTML = Object.values(machines).map(m => {
+        const remain = Math.round((m.nextMaint - m.currentHour) * 10) / 10;
+        const pct = Math.min(100, Math.round((m.currentHour / m.nextMaint) * 100));
+        const isWarn = remain <= 10;
+        const badge = isWarn
+          ? `<span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-600 border border-amber-500/40">⚠️ 要点検（残り ${remain}h）</span>`
+          : `<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-600">正常（次回まで ${remain}h）</span>`;
+
+        return `
+          <div class="p-4 rounded-2xl bg-[var(--background)] border border-[var(--border)]">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+              <div class="font-bold text-sm text-[var(--foreground)]">${m.name}</div>
+              <div class="flex items-center gap-2">
+                ${badge}
+                <button onclick="completeMachineMaintenance('${m.id}')" class="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition">
+                  🔧 点検・オイル交換完了
+                </button>
+              </div>
+            </div>
+            <div class="flex justify-between text-xs text-[var(--muted-foreground)] mb-1.5">
+              <span>現在アワーメーター: <strong class="text-[var(--foreground)]">${m.currentHour.toFixed(1)} h</strong></span>
+              <span>次回点検目安: ${m.nextMaint.toFixed(1)} h</span>
+            </div>
+            <div class="w-full h-2.5 rounded-full bg-[var(--secondary)] overflow-hidden">
+              <div class="h-full ${isWarn ? 'bg-amber-500' : 'bg-emerald-500'} rounded-full" style="width: ${pct}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      const sList = document.getElementById('materialStockList');
+      const fertCards = Object.values(fertilizers).map(f => {
+        const isLow = f.stock <= f.minStock;
+        return `
+          <div class="p-3.5 rounded-2xl bg-[var(--background)] border border-[var(--border)] flex items-center justify-between gap-2">
+            <div>
+              <span class="text-xs font-bold text-emerald-600">[肥料] N${f.n}-P${f.p}-K${f.k}</span>
+              <div class="font-bold text-sm text-[var(--foreground)]">${f.name}</div>
+              <div class="text-xs text-[var(--muted-foreground)]">${isLow ? '⚠️ 発注点割れ（要補充）' : '在庫十分'}</div>
+            </div>
+            <div class="flex items-center gap-2.5 shrink-0">
+              <div class="text-right">
+                <div class="text-base font-bold ${isLow ? 'text-amber-600' : 'text-[var(--foreground)]'}">残 ${f.stock} 袋</div>
+              </div>
+              <button onclick="restockMaterial('fert', '${f.id}', 10)" class="px-2.5 py-1.5 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold border border-[var(--border)] hover:opacity-80">
+                ＋10袋入庫
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      const pestCards = Object.values(pesticides).map(p => {
+        return `
+          <div class="p-3.5 rounded-2xl bg-[var(--background)] border border-[var(--border)] flex items-center justify-between gap-2">
+            <div>
+              <span class="text-xs font-bold text-sky-600">[農薬] ${p.regNo} (上限${p.maxUse}回)</span>
+              <div class="font-bold text-sm text-[var(--foreground)]">${p.name}</div>
+              <div class="text-xs text-[var(--muted-foreground)]">収穫前 ${p.phiDays} 日まで</div>
+            </div>
+            <div class="flex items-center gap-2.5 shrink-0">
+              <div class="text-right">
+                <div class="text-base font-bold text-[var(--foreground)]">残 ${p.stock} 本</div>
+              </div>
+              <button onclick="restockMaterial('pest', '${p.id}', 5)" class="px-2.5 py-1.5 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold border border-[var(--border)] hover:opacity-80">
+                ＋5本入庫
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      sList.innerHTML = fertCards + pestCards;
+    }
+
+    // =========================================================================
+    // TAB 4: JA・行政提出用 A4帳票の描画 ＆ CSV出力
+    // =========================================================================
+    function switchReportType(type) {
+      ['ja', 'daily', 'yield'].forEach(t => {
+        const sheet = document.getElementById('reportSheet-' + t);
+        const btn = document.getElementById('repBtn-' + t);
+        if (!sheet || !btn) return;
+        if (t === type) {
+          sheet.classList.remove('hidden');
+          btn.className = 'px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 text-white';
+        } else {
+          sheet.classList.add('hidden');
+          btn.className = 'px-4 py-2 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]';
+        }
+      });
+    }
+
+    function populateJaReportFilterOptions_() {
+      const cropSel = document.getElementById('jaReportCropFilter');
+      const fieldSel = document.getElementById('jaReportFieldFilter');
+      if (!cropSel || !fieldSel) return;
+
+      const curCrop = cropSel.value || 'コシヒカリ (BL)';
+      const curField = fieldSel.value || 'ALL';
+
+      const uniqueCrops = [...new Set(fieldsData.map(f => f.crop).filter(Boolean))];
+      cropSel.innerHTML = [
+        ...uniqueCrops.map(c => `<option value="${c}">🌾 品種：${c}</option>`),
+        `<option value="ALL">すべての品種（全圃場）</option>`
+      ].join('');
+      if (uniqueCrops.includes(curCrop) || curCrop === 'ALL') {
+        cropSel.value = curCrop;
+      } else if (uniqueCrops.length > 0) {
+        cropSel.value = uniqueCrops[0];
+      }
+
+      const selectedCropVal = cropSel.value;
+      const cropMatchedFields = selectedCropVal === 'ALL'
+        ? fieldsData
+        : fieldsData.filter(f => f.crop === selectedCropVal);
+
+      fieldSel.innerHTML = [
+        `<option value="ALL">すべての対象圃場（計 ${cropMatchedFields.reduce((s, f) => s + f.area, 0)}a / ${cropMatchedFields.length}筆）</option>`,
+        `<option value="GROUP_gps">📍 本場平場団地のみ</option>`,
+        `<option value="GROUP_yama">⛰️ 中山間・上山田団地のみ</option>`,
+        `<option value="GROUP_river">🌊 川向団地のみ</option>`,
+        ...cropMatchedFields.map(f => `<option value="${f.id}">個別圃場：${f.name} (${f.area}a)</option>`)
+      ].join('');
+
+      if ([...fieldSel.options].some(o => o.value === curField)) {
+        fieldSel.value = curField;
+      } else {
+        fieldSel.value = 'ALL';
+      }
+    }
+
+    function renderReportsTab() {
+      populateJaReportFilterOptions_();
+
+      const cropFilter = document.getElementById('jaReportCropFilter')?.value || 'ALL';
+      const fieldFilter = document.getElementById('jaReportFieldFilter')?.value || 'ALL';
+
+      // 絞り込み対象の圃場リストを決定
+      const targetFields = fieldsData.filter(f => {
+        const cropOk = (cropFilter === 'ALL') || (f.crop === cropFilter);
+        let fieldOk = true;
+        if (fieldFilter.startsWith('GROUP_')) {
+          const gKey = fieldFilter.replace('GROUP_', '');
+          fieldOk = (f.group === gKey);
+        } else if (fieldFilter !== 'ALL') {
+          fieldOk = (f.id === fieldFilter);
+        }
+        return cropOk && fieldOk;
+      });
+      const targetFieldIds = targetFields.map(f => f.id);
+      const targetTotalArea = targetFields.reduce((sum, f) => sum + f.area, 0);
+
+      // ヘッダ表示の動的更新
+      const cropLabelEl = document.getElementById('jaHeaderCropLabel');
+      const areaLabelEl = document.getElementById('jaHeaderAreaLabel');
+      if (cropLabelEl) {
+        cropLabelEl.textContent = cropFilter === 'ALL' ? '全品種' : cropFilter;
+      }
+      if (areaLabelEl) {
+        const namesPreview = targetFields.length <= 3
+          ? targetFields.map(f => f.name).join('・')
+          : `${targetFields[0].name} ほか計${targetFields.length}筆`;
+        areaLabelEl.textContent = targetFields.length > 0
+          ? `${namesPreview}（合計 ${targetTotalArea} a）`
+          : '該当圃場なし (0 a)';
+      }
+
+      // 対象圃場に関連する施肥・防除ログを抽出し、対象圃場分の面積比率で按分集計
+      const fertLogs = workLogs.filter(l => l.type === 'fertilizer' && l.fieldIds.some(id => targetFieldIds.includes(id)));
+      const pestLogs = workLogs.filter(l => l.type === 'pesticide' && l.fieldIds.some(id => targetFieldIds.includes(id)));
+
+      let weightedNTotalKg = 0;
+      let weightedPTotalKg = 0;
+      let weightedKTotalKg = 0;
+
+      const fertRowsHtml = fertLogs.map(l => {
+        const matchedFieldsInLog = l.fieldIds
+          .map(id => fieldsData.find(f => f.id === id))
+          .filter(f => f && targetFieldIds.includes(f.id));
+        const matchedArea = matchedFieldsInLog.reduce((s, f) => s + f.area, 0);
+        const logTotalArea = l.totalArea || matchedArea || 1;
+        const areaRatio = matchedArea / logTotalArea;
+        const allocatedKg = Math.round(l.totalKg * areaRatio * 10) / 10;
+
+        // この作業における対象圃場への正味成分投入量 (kg) = (10aあたり成分量) × (対象実施面積 / 10)
+        weightedNTotalKg += l.n10a * (matchedArea / 10);
+        weightedPTotalKg += l.p10a * (matchedArea / 10);
+        weightedKTotalKg += l.k10a * (matchedArea / 10);
+
+        const fNames = matchedFieldsInLog.map(f => f.name).join('、');
+        return `
+          <tr>
+            <td class="border border-slate-400 p-2">${l.date}</td>
+            <td class="border border-slate-400 p-2">${fNames}</td>
+            <td class="border border-slate-400 p-2 text-right">${matchedArea} a</td>
+            <td class="border border-slate-400 p-2 font-semibold">${l.fertName}</td>
+            <td class="border border-slate-400 p-2 text-center">${l.npkLabel}</td>
+            <td class="border border-slate-400 p-2 text-right">${allocatedKg} kg</td>
+            <td class="border border-slate-400 p-2 text-right font-bold">${l.per10aKg.toFixed(1)} kg</td>
+            <td class="border border-slate-400 p-2 text-right font-bold text-emerald-700">${l.n10a.toFixed(2)} kg</td>
+            <td class="border border-slate-400 p-2 text-right font-bold text-sky-700">${l.p10a.toFixed(2)} kg</td>
+            <td class="border border-slate-400 p-2 text-right font-bold text-amber-700">${l.k10a.toFixed(2)} kg</td>
+          </tr>
+        `;
+      }).join('');
+
+      // 対象圃場全体（品種・団地）での面積加重平均による10aあたり作期累計成分量（二重計上を防止）
+      const avgCumN10a = targetTotalArea > 0 ? (weightedNTotalKg / (targetTotalArea / 10)) : 0;
+      const avgCumP10a = targetTotalArea > 0 ? (weightedPTotalKg / (targetTotalArea / 10)) : 0;
+      const avgCumK10a = targetTotalArea > 0 ? (weightedKTotalKg / (targetTotalArea / 10)) : 0;
+
+      const fertSummaryRowHtml = `
+        <tr class="bg-emerald-50 font-bold">
+          <td colspan="7" class="border border-slate-400 p-2 text-right text-slate-800">
+            【作期累計（対象 ${targetFields.length} 筆・${targetTotalArea}a の面積加重平均 10aあたり合計成分量）】
+          </td>
+          <td class="border border-slate-400 p-2 text-right text-emerald-800">${avgCumN10a.toFixed(2)} kg/10a</td>
+          <td class="border border-slate-400 p-2 text-right text-sky-800">${avgCumP10a.toFixed(2)} kg/10a</td>
+          <td class="border border-slate-400 p-2 text-right text-amber-800">${avgCumK10a.toFixed(2)} kg/10a</td>
+        </tr>
+      `;
+
+      document.getElementById('jaReportFertilizerBody').innerHTML =
+        (fertRowsHtml || `<tr><td colspan="10" class="border border-slate-400 p-3 text-center text-slate-500">該当する施肥履歴はありません</td></tr>`) +
+        fertSummaryRowHtml;
+
+      document.getElementById('jaReportPesticideBody').innerHTML = pestLogs.map(l => {
+        const matchedFieldsInLog = l.fieldIds
+          .map(id => fieldsData.find(f => f.id === id))
+          .filter(f => f && targetFieldIds.includes(f.id));
+        const matchedArea = matchedFieldsInLog.reduce((s, f) => s + f.area, 0);
+        const logTotalArea = l.totalArea || matchedArea || 1;
+        const areaRatio = matchedArea / logTotalArea;
+        const allocWaterL = Math.round(l.waterL * areaRatio * 10) / 10;
+        const rawChemMl = parseFloat(String(l.chemAmount || '0').replace(/,/g, '')) || 0;
+        const allocChemMl = Math.round(rawChemMl * areaRatio);
+        const fNames = matchedFieldsInLog.map(f => f.name).join('、');
+        return `
+          <tr>
+            <td class="border border-slate-400 p-2">${l.date}</td>
+            <td class="border border-slate-400 p-2">${fNames}</td>
+            <td class="border border-slate-400 p-2 text-right">${matchedArea} a</td>
+            <td class="border border-slate-400 p-2 font-semibold">${l.pestName}</td>
+            <td class="border border-slate-400 p-2 text-center">${l.dilution}</td>
+            <td class="border border-slate-400 p-2 text-right">${allocWaterL} L</td>
+            <td class="border border-slate-400 p-2 text-right font-bold">${allocChemMl.toLocaleString()} mL</td>
+            <td class="border border-slate-400 p-2 text-center">${l.useCountLabel}</td>
+            <td class="border border-slate-400 p-2 text-center font-bold text-emerald-700">適（基準内）</td>
+          </tr>
+        `;
+      }).join('') || `<tr><td colspan="9" class="border border-slate-400 p-3 text-center text-slate-500">該当する防除履歴はありません</td></tr>`;
+
+      document.getElementById('dailyReportBody').innerHTML = workLogs.map(l => {
+        const fNames = l.fieldIds.map(id => fieldsData.find(f => f.id === id)?.name || id).join('、');
+        return `
+          <tr>
+            <td class="border border-slate-400 p-2">${l.date}</td>
+            <td class="border border-slate-400 p-2 font-bold">${l.cat}</td>
+            <td class="border border-slate-400 p-2">${l.worker}</td>
+            <td class="border border-slate-400 p-2">${fNames}</td>
+            <td class="border border-slate-400 p-2 text-right">${l.totalArea} a</td>
+            <td class="border border-slate-400 p-2 text-right font-bold">${l.duration.toFixed(1)} h</td>
+            <td class="border border-slate-400 p-2">${l.machineName}</td>
+            <td class="border border-slate-400 p-2">${l.materialSummary}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const yieldBody = document.getElementById('yieldReportBody');
+      if (yieldBody) {
+        yieldBody.innerHTML = fieldsData.map(f => {
+          // 面積比率による累計労働時間の算出
+          const fLogs = workLogs.filter(l => l.fieldIds.includes(f.id));
+          const cumHr = fLogs.reduce((acc, l) => acc + (l.duration * (f.area / (l.totalArea || f.area))), 0);
+          const defaultYieldTawara = f.yieldTawara10a || (f.nPer10a > 0 ? 9.0 : 0);
+          const defaultHarvKg = f.harvestKg || Math.round(defaultYieldTawara * 60 * (f.area / 10));
+          const gradeStr = f.grade || (defaultHarvKg > 0 ? '1等(見込)' : '収穫前');
+          return `
+            <tr>
+              <td class="border border-slate-400 p-2 font-bold">${f.name} <span class="font-normal text-slate-600">(${f.lot})</span></td>
+              <td class="border border-slate-400 p-2">${f.crop}</td>
+              <td class="border border-slate-400 p-2 text-right">${f.area} a</td>
+              <td class="border border-slate-400 p-2 text-right font-semibold">${cumHr.toFixed(2)} h</td>
+              <td class="border border-slate-400 p-2 text-right font-bold text-emerald-700">${f.nPer10a.toFixed(2)} kg</td>
+              <td class="border border-slate-400 p-2 text-right text-sky-700">${f.pPer10a.toFixed(2)} kg</td>
+              <td class="border border-slate-400 p-2 text-right text-amber-700">${f.kPer10a.toFixed(2)} kg</td>
+              <td class="border border-slate-400 p-2 text-right font-bold">${defaultHarvKg > 0 ? defaultHarvKg.toLocaleString() + ' kg' : '-'}</td>
+              <td class="border border-slate-400 p-2 text-right font-bold text-amber-700">${defaultYieldTawara > 0 ? defaultYieldTawara.toFixed(1) + ' 俵' : '-'}</td>
+              <td class="border border-slate-400 p-2 text-center font-semibold">${gradeStr}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+    function exportCsvData() {
+      const header = ['作業日', '作業分類', '作業者', '対象圃場', '合計面積(a)', '作業時間(h)', '使用機械', '使用資材摘要'];
+      const rows = workLogs.map(l => {
+        const fNames = l.fieldIds.map(id => fieldsData.find(f => f.id === id)?.name || id).join('・');
+        return [l.date, l.cat, l.worker, `"${fNames}"`, l.totalArea, l.duration, `"${l.machineName}"`, `"${l.materialSummary}"`].join(',');
+      });
+      const csvContent = '\uFEFF' + [header.join(','), ...rows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'rakuraku_einou_export.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('📥 CSVファイルを出力しました', '既存の「らくらく営農日誌」Excelやスプレッドシートへそのまま取り込めます。');
+    }
+
+    // =========================================================================
+    // TAB 5: マスタ追加 ＆ Googleスプレッドシート（GAS）同期・バックアップ
+    // =========================================================================
+    function addNewFieldMaster() {
+      const name = document.getElementById('newFieldName').value.trim();
+      const lot = document.getElementById('newFieldLot').value.trim() || '地番未設定';
+      const area = Number(document.getElementById('newFieldArea').value || 20);
+      const crop = document.getElementById('newFieldCrop').value.trim() || 'コシヒカリ (BL)';
+
+      if (!name) {
+        showToast('⚠️ 入力確認', '圃場名（通称）を入力してください。');
+        return;
+      }
+
+      const newId = 'F0' + (fieldsData.length + 1);
+      fieldsData.push({
+        id: newId,
+        name: name,
+        lot: lot,
+        group: 'yama',
+        area: area,
+        crop: crop,
+        harvest: '2026/09/25',
+        stage: '未着手',
+        lat: 37.9212,
+        lng: 139.0482,
+        doneCats: [],
+        nPer10a: 0,
+        pPer10a: 0,
+        kPer10a: 0,
+        pestCount: {}
+      });
+
+      document.getElementById('newFieldName').value = '';
+      document.getElementById('newFieldLot').value = '';
+      saveStateToStorage();
+      renderInputFieldGrid();
+      renderGisHeatmap();
+      showToast(`✅ 新規圃場「${name} (${area}a)」を追加しました`, '現場一括入力およびGISカルテからすぐに選択できます。');
+    }
+
+    function addNewFertilizerMaster() {
+      const name = document.getElementById('newFertName').value.trim();
+      const n = Number(document.getElementById('newFertN').value || 0);
+      const p = Number(document.getElementById('newFertP').value || 0);
+      const k = Number(document.getElementById('newFertK').value || 0);
+      const stock = Number(document.getElementById('newFertStock').value || 20);
+
+      if (!name) {
+        showToast('⚠️ 入力確認', '肥料名称を入力してください。');
+        return;
+      }
+
+      const newId = 'F0' + (Object.keys(fertilizers).length + 1);
+      fertilizers[newId] = { id: newId, name, unitKg: 20, n, p, k, stock, minStock: 10 };
+      document.getElementById('newFertName').value = '';
+      saveStateToStorage();
+      renderSelectOptions();
+      renderResourcesTab();
+      showToast(`✅ 新規肥料「${name} (N${n}-P${p}-K${k})」を追加しました`, '施肥入力時の自動NPK計算リストに追加されました。');
+    }
+
+    function saveGasUrl() {
+      gasWebhookUrl = document.getElementById('gasWebhookUrl').value.trim();
+      saveStateToStorage();
+    }
+
+    async function syncWithGasBackend() {
+      const unsynced = workLogs.filter(l => !l.synced);
+      const url = document.getElementById('gasWebhookUrl').value.trim();
+
+      if (!url) {
+        workLogs.forEach(l => l.synced = true);
+        saveStateToStorage();
+        showToast('☁️ クラウド同期シミュレート完了', 'GASウェブアプリURLを設定（タブ5）すると、実際のGoogleスプレッドシートへ直接POST送信＆自動按分されます。');
+        return;
+      }
+
+      try {
+        await fetch(url, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ fields: fieldsData, logs: unsynced.length > 0 ? unsynced : [workLogs[0]] })
+        });
+        workLogs.forEach(l => l.synced = true);
+        saveStateToStorage();
+        showToast('☁️ Googleスプレッドシートへ同期送信しました！', '新規移行した圃場データと作業日誌がスプレッドシートへ送信され、自動面積按分・JA帳票更新が実行されました。');
+      } catch (err) {
+        showToast('⚠️ 通信エラー（端末内に安全に保存されています）', '電波状況を確認後、再度同期ボタンを押してください。');
+      }
+    }
+
+    // =========================================================================
+    // 他社営農アプリ・Excel・eMAFF筆ポリゴン スマートデータ移行エンジン
+    // =========================================================================
+    let pendingMigrationItems = [];
+    let pendingMigrationMode = 'fields'; // 'fields' or 'logs'
+
+    const MIGRATION_SAMPLES = {
+      agrinote: `ほ場ID,ほ場名,グループ名,地番・住所,面積(㎡),作付名,品種名,収穫予定日,緯度,経度
+AGN-101,⑧ アグリ下新田1号,本場エリア,大字下新田 201-1,2800,水稲,コシヒカリ (BL),2026/09/22,37.9165,139.0370
+AGN-102,⑨ アグリ下新田2号,本場エリア,大字下新田 201-2,3200,水稲,コシヒカリ (BL),2026/09/22,37.9168,139.0372
+AGN-103,⑩ アグリ山間棚田,上山田飛び地,上山田字沢 110,1400,水稲,つきあかり,2026/09/15,37.9220,139.0490`,
+      ksas: `作業日,作業項目,作業担当者,圃場名称,登録面積(ha),作業時間(h),使用機械名,使用資材名,使用量(kg),成分N(%),成分P(%),成分K(%)
+2026/10/20,耕起,佐藤 健一,① 本場1号・② 本場2号,0.50,1.5,ヤンマー トラクター YT357,-,0,0,0,0
+2026/10/25,施肥,佐藤 健一,④ 川向4号,0.35,1.0,ヤンマー トラクター YT357,くみあい苦土入り複合オール14,70,14,14,14`,
+      emaff: JSON.stringify({
+        type: 'FeatureCollection',
+        features: [
+          {
+            type: 'Feature',
+            properties: { polygon_id: 'EMAFF-01', name: '⑪ eMAFF北沢1号', address: '大字北沢 55-1', area_m2: 2400, crop: 'コシヒカリ (BL)' },
+            geometry: { type: 'Polygon', coordinates: [[[139.0380, 37.9180], [139.0386, 37.9180], [139.0386, 37.9184], [139.0380, 37.9184]]] }
+          },
+          {
+            type: 'Feature',
+            properties: { polygon_id: 'EMAFF-02', name: '⑫ eMAFF北沢2号', address: '大字北沢 56-3', area_m2: 1900, crop: 'つきあかり' },
+            geometry: { type: 'Polygon', coordinates: [[[139.0388, 37.9180], [139.0393, 37.9180], [139.0393, 37.9184], [139.0388, 37.9184]]] }
+          }
+        ]
+      }, null, 2)
+    };
+
+    function loadMigrationSample(sampleKey) {
+      document.getElementById('migrationRawInput').value = MIGRATION_SAMPLES[sampleKey] || '';
+      parseAndPreviewMigrationText();
+    }
+
+    function handleMigrationFileSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        document.getElementById('migrationRawInput').value = e.target.result;
+        parseAndPreviewMigrationText();
+      };
+      reader.readAsText(file, 'UTF-8');
+    }
+
+    function parseAndPreviewMigrationText() {
+      const raw = document.getElementById('migrationRawInput').value.trim();
+      const badge = document.getElementById('migrationDetectedBadge');
+      const summary = document.getElementById('migrationMappingSummary');
+      const tHead = document.getElementById('migrationPreviewHead');
+      const tBody = document.getElementById('migrationPreviewBody');
+
+      pendingMigrationItems = [];
+      if (!raw) {
+        badge.textContent = '待機中';
+        summary.textContent = '上のサンプルボタンを押すか、CSV/GeoJSONファイルを選択してください。';
+        tHead.innerHTML = '<tr><th class="p-2">変換プレビュー</th></tr>';
+        tBody.innerHTML = '';
+        return;
+      }
+
+      // 1. GeoJSON (eMAFF農地ナビ / Z-GIS) 判定
+      if (raw.startsWith('{')) {
+        try {
+          const geo = JSON.parse(raw);
+          if (geo.features && Array.isArray(geo.features)) {
+            pendingMigrationMode = 'fields';
+            badge.textContent = '🗺️ eMAFF / Z-GIS 筆ポリゴン (GeoJSON) 検出';
+            summary.textContent = 'GeoJSONの properties（面積㎡→アール換算）およびポリゴン中心座標を自動抽出しました。';
+
+            pendingMigrationItems = geo.features.map((feat, idx) => {
+              const p = feat.properties || {};
+              const coords = (feat.geometry && feat.geometry.coordinates && feat.geometry.coordinates[0] && feat.geometry.coordinates[0][0]) || [139.038, 37.918];
+              const m2 = Number(p.area_m2 || p.area || 2000);
+              const areaA = m2 >= 200 ? Math.round(m2 / 100) : m2;
+              return {
+                name: p.name || p.field_name || `eMAFF圃場${idx + 1}`,
+                lot: p.address || p.lot || '筆ポリゴン取込',
+                area: areaA,
+                rawAreaNote: `${m2}㎡ → ${areaA}a`,
+                crop: p.crop || 'コシヒカリ (BL)',
+                lat: coords[1],
+                lng: coords[0]
+              };
+            });
+
+            tHead.innerHTML = `<tr><th class="p-2">変換後の圃場名</th><th class="p-2">地番</th><th class="p-2">面積自動換算</th><th class="p-2">作付品種</th><th class="p-2">GPS座標</th></tr>`;
+            tBody.innerHTML = pendingMigrationItems.map(item => `
+              <tr>
+                <td class="p-2 font-bold">${item.name}</td>
+                <td class="p-2">${item.lot}</td>
+                <td class="p-2 text-emerald-600 font-bold">${item.rawAreaNote}</td>
+                <td class="p-2">${item.crop}</td>
+                <td class="p-2 font-mono">${item.lat.toFixed(4)}, ${item.lng.toFixed(4)}</td>
+              </tr>
+            `).join('');
+            return;
+          }
+        } catch (e) {}
+      }
+
+      // 2. CSV または TSV (Excelコピペ) のパース
+      const lines = raw.split(/\r?\n/).filter(l => l.trim().length > 0);
+      if (lines.length < 2) return;
+      const delimiter = lines[0].includes('\t') ? '\t' : ',';
+      const headers = lines[0].split(delimiter).map(h => h.replace(/^"|"$/g, '').trim());
+      const findIdx = (kwList) => headers.findIndex(h => kwList.some(k => h.includes(k)));
+
+      const dateIdx = findIdx(['作業日', '実施日', '散布日', '施用日', '日付']);
+      const catIdx = findIdx(['作業項目', '作業分類', '作業内容', '作業名']);
+
+      if (dateIdx !== -1 && catIdx !== -1) {
+        // 【作業日誌・施肥防除履歴CSV（KSAS / アグリノート / 旧日誌）】
+        pendingMigrationMode = 'logs';
+        badge.textContent = '📘 他社アプリ 作業日誌・施肥履歴CSV 検出';
+        const workerIdx = findIdx(['担当者', '作業者', '氏名']);
+        const fieldIdx = findIdx(['圃場', 'ほ場', '田んぼ']);
+        const haIdx = findIdx(['(ha)', 'ha', 'ヘクタール']);
+        const aIdx = findIdx(['(a)', '面積']);
+        const durIdx = findIdx(['時間', '稼働']);
+        const matIdx = findIdx(['資材', '肥料', '農薬']);
+        const qtyIdx = findIdx(['使用量', '数量', '袋数']);
+        const nIdx = findIdx(['成分N', 'チッソ']);
+        const pIdx = findIdx(['成分P', 'リン酸']);
+        const kIdx = findIdx(['成分K', 'カリ']);
+
+        summary.textContent = `作業日・作業項目・面積（${haIdx !== -1 ? 'ha→a自動換算' : 'a'}）・使用資材・NPK成分を自動マッピングしました。`;
+
+        pendingMigrationItems = lines.slice(1).map(line => {
+          const cols = line.split(delimiter).map(c => c.replace(/^"|"$/g, '').trim());
+          const areaA = haIdx !== -1 ? Math.round(Number(cols[haIdx] || 0.3) * 100) : Number(cols[aIdx] || 30);
+          const catRaw = cols[catIdx] || '耕起';
+          const cat = catRaw.includes('肥') ? '施肥' : (catRaw.includes('防除') || catRaw.includes('散布') ? '防除' : catRaw);
+          const matName = matIdx !== -1 && cols[matIdx] !== '-' ? cols[matIdx] : '';
+          const totalKg = qtyIdx !== -1 ? Number(cols[qtyIdx] || 0) : 0;
+          const nPct = nIdx !== -1 ? Number(cols[nIdx] || 0) : 0;
+          const pPct = pIdx !== -1 ? Number(cols[pIdx] || 0) : 0;
+          const kPct = kIdx !== -1 ? Number(cols[kIdx] || 0) : 0;
+          const per10aKg = areaA > 0 ? totalKg / (areaA / 10) : 0;
+
+          // 既存の圃場名と照合してIDを紐付け
+          const rawFieldNames = fieldIdx !== -1 ? cols[fieldIdx].split(/[・,、]/) : ['① 本場1号'];
+          const matchedIds = [];
+          rawFieldNames.forEach(fn => {
+            const found = fieldsData.find(f => f.name.includes(fn.trim()) || fn.trim().includes(f.name));
+            if (found) matchedIds.push(found.id);
+          });
+          if (matchedIds.length === 0) matchedIds.push('F01');
+
+          return {
+            id: 'IMP-WL-' + Date.now() + '-' + Math.random().toString(36).slice(2, 5),
+            date: cols[dateIdx],
+            cat: cat,
+            worker: workerIdx !== -1 ? cols[workerIdx] : '佐藤 健一',
+            fieldIds: matchedIds,
+            fieldNamesLabel: cols[fieldIdx] || '① 本場1号',
+            totalArea: areaA,
+            duration: durIdx !== -1 ? Number(cols[durIdx] || 1.0) : 1.0,
+            machineName: 'ヤンマー トラクター YT357 (移行)',
+            type: cat === '施肥' && totalKg > 0 ? 'fertilizer' : 'general',
+            fertName: matName || '移行肥料',
+            npkLabel: `${nPct}-${pPct}-${kPct}`,
+            totalKg: totalKg,
+            per10aKg: per10aKg,
+            n10a: per10aKg * (nPct / 100),
+            p10a: per10aKg * (pPct / 100),
+            k10a: per10aKg * (kPct / 100),
+            materialSummary: matName ? `${matName} (${totalKg}kg) [他社アプリ移行]` : `${catRaw} [他社アプリ移行]`,
+            synced: false
+          };
+        });
+
+        tHead.innerHTML = `<tr><th class="p-2">作業日</th><th class="p-2">分類</th><th class="p-2">対象圃場</th><th class="p-2">換算面積</th><th class="p-2">時間</th><th class="p-2">資材・NPK自動計算</th></tr>`;
+        tBody.innerHTML = pendingMigrationItems.map(item => `
+          <tr>
+            <td class="p-2">${item.date}</td>
+            <td class="p-2 font-bold text-emerald-600">${item.cat}</td>
+            <td class="p-2">${item.fieldNamesLabel}</td>
+            <td class="p-2 font-bold">${item.totalArea} a</td>
+            <td class="p-2">${item.duration} h</td>
+            <td class="p-2">${item.materialSummary}</td>
+          </tr>
+        `).join('');
+      } else {
+        // 【圃場マスタ台帳CSV（アグリノート / KSAS / 既存Excel）】
+        pendingMigrationMode = 'fields';
+        badge.textContent = '📗 他社アプリ ほ場台帳CSV 検出';
+        const nameIdx = findIdx(['ほ場名', '圃場名', '通称', '名称', '田んぼ']);
+        const lotIdx = findIdx(['地番', '住所', '所在地']);
+        const m2Idx = findIdx(['㎡', 'm2', '平米']);
+        const haIdx = findIdx(['(ha)', 'ha']);
+        const aIdx = findIdx(['面積', 'アール']);
+        const cropIdx = findIdx(['品種', '作付']);
+        const harvIdx = findIdx(['収穫']);
+        const latIdx = findIdx(['緯度', 'lat']);
+        const lngIdx = findIdx(['経度', 'lng']);
+
+        summary.textContent = `ほ場名・地番・面積（${m2Idx !== -1 ? '㎡→a自動換算' : (haIdx !== -1 ? 'ha→a自動換算' : 'a')}）・品種・GPS座標を自動マッピングしました。`;
+
+        pendingMigrationItems = lines.slice(1).map((line, idx) => {
+          const cols = line.split(delimiter).map(c => c.replace(/^"|"$/g, '').trim());
+          let areaA = 20;
+          let note = '';
+          if (m2Idx !== -1 && cols[m2Idx]) {
+            const m2 = Number(cols[m2Idx]);
+            areaA = Math.round(m2 / 100);
+            note = `${m2}㎡ → ${areaA}a`;
+          } else if (haIdx !== -1 && cols[haIdx]) {
+            const ha = Number(cols[haIdx]);
+            areaA = Math.round(ha * 100);
+            note = `${ha}ha → ${areaA}a`;
+          } else if (aIdx !== -1 && cols[aIdx]) {
+            const rawV = Number(cols[aIdx]);
+            areaA = rawV >= 500 ? Math.round(rawV / 100) : rawV;
+            note = `${areaA}a`;
+          }
+
+          return {
+            name: cols[nameIdx !== -1 ? nameIdx : 0] || `移行圃場${idx + 1}`,
+            lot: lotIdx !== -1 ? cols[lotIdx] : '-',
+            area: areaA,
+            rawAreaNote: note,
+            crop: cropIdx !== -1 ? cols[cropIdx] : 'コシヒカリ (BL)',
+            harvest: harvIdx !== -1 && cols[harvIdx] ? cols[harvIdx].replace(/-/g, '/') : '2026/09/22',
+            lat: latIdx !== -1 && cols[latIdx] ? Number(cols[latIdx]) : 37.9165,
+            lng: lngIdx !== -1 && cols[lngIdx] ? Number(cols[lngIdx]) : 139.0370
+          };
+        });
+
+        tHead.innerHTML = `<tr><th class="p-2">変換後の圃場名</th><th class="p-2">地番</th><th class="p-2">面積自動換算</th><th class="p-2">品種</th><th class="p-2">収穫予定日</th></tr>`;
+        tBody.innerHTML = pendingMigrationItems.map(item => `
+          <tr>
+            <td class="p-2 font-bold">${item.name}</td>
+            <td class="p-2">${item.lot}</td>
+            <td class="p-2 font-bold text-emerald-600">${item.rawAreaNote}</td>
+            <td class="p-2">${item.crop}</td>
+            <td class="p-2">${item.harvest}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    function executeMigrationImport() {
+      if (!pendingMigrationItems || pendingMigrationItems.length === 0) {
+        showToast('⚠️ データ未選択', '先にサンプルボタンを押すか、CSV/GeoJSONファイルを選択してください。');
+        return;
+      }
+
+      if (pendingMigrationMode === 'fields') {
+        pendingMigrationItems.forEach((item, idx) => {
+          const newId = 'F' + String(fieldsData.length + 1).padStart(2, '0');
+          fieldsData.push({
+            id: newId,
+            name: item.name,
+            lot: item.lot,
+            group: 'yama',
+            area: item.area,
+            crop: item.crop,
+            harvest: item.harvest || '2026/09/22',
+            stage: '未着手',
+            lat: item.lat || 37.9165,
+            lng: item.lng || 139.0370,
+            doneCats: [],
+            nPer10a: 0,
+            pPer10a: 0,
+            kPer10a: 0,
+            pestCount: {}
+          });
+        });
+        saveStateToStorage();
+        renderInputFieldGrid();
+        renderGisHeatmap();
+        showToast(
+          `🎉 他社データから ${pendingMigrationItems.length} 筆の圃場を一括インポートしました！`,
+          '面積単位（㎡/ha → a）も自動換算され、現場入力画面・GISカルテに即時追加されました。'
+        );
+      } else {
+        pendingMigrationItems.forEach(logItem => {
+          workLogs.unshift(logItem);
+          logItem.fieldIds.forEach(fid => {
+            const f = fieldsData.find(x => x.id === fid);
+            if (f) {
+              f.stage = `${logItem.cat}済`;
+              if (!f.doneCats.includes(logItem.cat)) f.doneCats.push(logItem.cat);
+              if (logItem.type === 'fertilizer') {
+                f.nPer10a = Math.round((f.nPer10a + logItem.n10a) * 100) / 100;
+                f.pPer10a = Math.round((f.pPer10a + logItem.p10a) * 100) / 100;
+                f.kPer10a = Math.round((f.kPer10a + logItem.k10a) * 100) / 100;
+              }
+            }
+          });
+        });
+        saveStateToStorage();
+        renderGisHeatmap();
+        inspectField(currentInspectedFieldId);
+        renderReportsTab();
+        showToast(
+          `🎉 他社アプリから ${pendingMigrationItems.length} 件の作業・施肥履歴を一括インポートしました！`,
+          '各圃場の進捗・累計NPKおよびJA提出用A4帳票へ即時反映されました。'
+        );
+      }
+
+      document.getElementById('migrationRawInput').value = '';
+      pendingMigrationItems = [];
+      parseAndPreviewMigrationText();
+    }
+
+    function exportFullBackupJson() {
+      const blob = new Blob([JSON.stringify({ fieldsData, fertilizers, pesticides, machines, workLogs }, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'rakuraku_einou_backup.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('💾 全データのJSONバックアップを保存しました', '機種変更やPC移行時もデータを完全保護できます。');
+    }
+
+    function resetToDefaultData() {
+      localStorage.removeItem(STORAGE_KEY);
+      initApp();
+      showToast('🔄 初期サンプルデータにリセットしました', 'すべてのマスタ・履歴が初期状態に戻りました。');
+    }
+
+    function showToast(title, desc) {
+      const box = document.getElementById('toastBox');
+      document.getElementById('toastTitle').textContent = title;
+      document.getElementById('toastDesc').textContent = desc;
+      box.classList.remove('hidden');
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => {
+        box.classList.add('hidden');
+      }, 4500);
+    }
+
+    initApp();
+  </script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "polygon_id": "EMAFF-15201-01",
+        "name": "eMAFF取込・北沢1号",
+        "address": "大字北沢 55-1",
+        "area_m2": 2400,
+        "land_type": "田",
+        "crop": "コシヒカリ(BL)"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[139.0380, 37.9180], [139.0386, 37.9180], [139.0386, 37.9184], [139.0380, 37.9184], [139.0380, 37.9180]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "polygon_id": "EMAFF-15201-02",
+        "name": "eMAFF取込・北沢2号",
+        "address": "大字北沢 56-3",
+        "area_m2": 1900,
+        "land_type": "田",
+        "crop": "つきあかり"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[139.0388, 37.9180], [139.0393, 37.9180], [139.0393, 37.9184], [139.0388, 37.9184], [139.0388, 37.9180]]]
+      }
+    }
+  ]
+}
