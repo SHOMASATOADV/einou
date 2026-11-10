@@ -1,0 +1,61 @@
+/* ==========================================================================
+ * らくらく営農日誌 Next — テーマカラー変数・GISポリゴン・印刷用スタイル定義
+ * ========================================================================== */
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #1e293b;
+  --muted-foreground: #64748b;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0f172a;
+    --foreground: #f1f5f9;
+    --card: #1e293b;
+    --border: #334155;
+    --secondary: #334155;
+    --secondary-foreground: #e2e8f0;
+    --muted-foreground: #94a3b8;
+    color-scheme: dark;
+  }
+}
+
+@media print {
+  :root {
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --secondary: #f1f5f9;
+    --secondary-foreground: #1e293b;
+    --muted-foreground: #64748b;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-sheet {
+    box-shadow: none !important;
+    border: none !important;
+  }
+}
+
+.field-polygon {
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.field-polygon:hover {
+  filter: brightness(1.15);
+  stroke-width: 3px;
+}
+
+.field-selected {
+  stroke: #facc15 !important;
+  stroke-width: 4px !important;
+  filter: drop-shadow(0 0 8px rgba(250, 204, 21, 0.65));
+}

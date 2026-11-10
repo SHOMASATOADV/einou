@@ -53,6 +53,13 @@ Public Sub ImportPwaOrExternalCsv()
     filePath = Application.GetOpenFilename("CSVファイル (*.csv),*.csv", , "取り込む作業日誌・他社移行CSVを選択してください")
     If VarType(filePath) = vbBoolean And filePath = False Then Exit Sub
 
+    Dim prevCalc As XlCalculation
+    prevCalc = Application.Calculation
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.Calculation = xlCalculationManual
+    On Error GoTo CleanFail
+
     Call EnsureFieldMasterSheet
 
     Set wsLog = GetOrCreateSheet("T_作業日誌")
@@ -75,7 +82,7 @@ Public Sub ImportPwaOrExternalCsv()
     GoTo ParseLines
 
 FallbackFso:
-    On Error GoTo 0
+    On Error GoTo CleanFail
     Dim fso As Object, ts As Object
     Set fso = CreateObject("Scripting.FileSystemObject")
     Set ts = fso.OpenTextFile(CStr(filePath), 1, False, -1)
@@ -83,7 +90,7 @@ FallbackFso:
     ts.Close
 
 ParseLines:
-    On Error GoTo 0
+    On Error GoTo CleanFail
     allText = Replace(allText, vbCrLf, vbLf)
     allText = Replace(allText, vbCr, vbLf)
     lines = Split(allText, vbLf)
@@ -133,7 +140,19 @@ ParseLines:
 
     wsLog.Columns("A:I").AutoFit
     Call AllocateMultiFieldLogs
+
+CleanExit:
+    Application.Calculation = prevCalc
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
     MsgBox "スマホ日誌・他社CSVから " & importedCount & " 件を取り込み、M_圃場マスタの面積比率に基づく按分展開を完了しました！", vbInformation, "らくらく営農日誌 Excel連携"
+    Exit Sub
+
+CleanFail:
+    Application.Calculation = prevCalc
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+    MsgBox "CSV取込中にエラーが発生しました: " & Err.Description, vbExclamation, "らくらく営農日誌 Excel連携"
 End Sub
 
 Public Sub AllocateMultiFieldLogs()
@@ -150,6 +169,15 @@ Public Sub AllocateMultiFieldLogs()
     Dim allocArea As Double, allocHr As Double
     Dim token As String
     Dim lookedUpArea As Double, lookedUpName As String
+
+    Dim prevScreen As Boolean, prevEvents As Boolean, prevCalc As XlCalculation
+    prevScreen = Application.ScreenUpdating
+    prevEvents = Application.EnableEvents
+    prevCalc = Application.Calculation
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.Calculation = xlCalculationManual
+    On Error GoTo CleanAllocExit
 
     Call EnsureFieldMasterSheet
     Set wsFields = GetOrCreateSheet("M_圃場マスタ")
@@ -225,6 +253,11 @@ Public Sub AllocateMultiFieldLogs()
     Next r
 
     wsDetail.Columns("A:H").AutoFit
+
+CleanAllocExit:
+    Application.Calculation = prevCalc
+    Application.EnableEvents = prevEvents
+    Application.ScreenUpdating = prevScreen
 End Sub
 
 Public Sub ExportJaReportToA4Pdf()

@@ -70,7 +70,8 @@ function setupAllSheets() {
     ['F03', 'FERTILIZER', 'NK化成2号（穂肥用）', '-', '-', 20, 'kg', 17, 0, 17, 0, 0, 0, 12, 15],
     ['P01', 'PESTICIDE', 'アミスターフロアブル', '第20142号', 'アゾキシストロビン', 500, 'mL', 0, 0, 0, 1000, 2, 14, 18, 5],
     ['P02', 'PESTICIDE', 'スタークル液剤10', '第21993号', 'ジノテフラン', 500, 'mL', 0, 0, 0, 1000, 3, 7, 24, 5],
-    ['P03', 'PESTICIDE', 'ビームゾル', '第14201号', 'トリシクラゾール', 500, 'mL', 0, 0, 0, 1000, 2, 21, 6, 5]
+    ['P03', 'PESTICIDE', 'ビームゾル', '第14201号', 'トリシクラゾール', 500, 'mL', 0, 0, 0, 1000, 2, 21, 6, 5],
+    ['P04', 'PESTICIDE', 'スタークル粒剤', '第21992号', 'ジノテフラン', 3000, 'g', 0, 0, 0, 1, 3, 14, 15, 5]
   ];
   matSheet.getRange(1, 1, matData.length, matData[0].length).setValues(matData);
   styleHeaderRow_(matSheet, matData[0].length, '#0369a1');
@@ -219,37 +220,43 @@ function processPendingLogs_() {
     });
     if (totalAreaA <= 0) continue;
 
-    // 資材情報の取得とNPK計算
+    // 資材情報の取得とNPK計算（混用散布のカンマ区切り material_id 例: "P01,P02" にも対応）
     let matName = '-';
     let totalWeightKg = 0;
     let nPer10a = 0, pPer10a = 0, kPer10a = 0;
     let nTotalKg = 0, pTotalKg = 0, kTotalKg = 0;
     let totalChemMl = 0;
 
-    const m = materialId ? matMap[materialId] : null;
-    if (m) {
-      const mType = m[1];
-      matName = m[2];
-      const unitSize = Number(m[5] || 0);
-      const nPct = Number(m[7] || 0);
-      const pPct = Number(m[8] || 0);
-      const kPct = Number(m[9] || 0);
+    const matIds = materialId ? materialId.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const matchedMats = matIds.map(id => matMap[id]).filter(Boolean);
+    if (matchedMats.length > 0) {
+      matName = matchedMats.map(item => item[2]).join('＋');
+      matchedMats.forEach((m, mIdx) => {
+        const mType = m[1];
+        const unitSize = Number(m[5] || 0);
+        const nPct = Number(m[7] || 0);
+        const pPct = Number(m[8] || 0);
+        const kPct = Number(m[9] || 0);
 
-      if (mType === 'FERTILIZER') {
-        totalWeightKg = inputQty * unitSize;
-        const per10aKg = totalWeightKg / (totalAreaA / 10.0);
-        nPer10a = per10aKg * (nPct / 100.0);
-        pPer10a = per10aKg * (pPct / 100.0);
-        kPer10a = per10aKg * (kPct / 100.0);
-        nTotalKg = totalWeightKg * (nPct / 100.0);
-        pTotalKg = totalWeightKg * (pPct / 100.0);
-        kTotalKg = totalWeightKg * (kPct / 100.0);
-      } else if (mType === 'PESTICIDE' && dilutionRate > 0) {
-        totalChemMl = (waterVolL * 1000.0) / dilutionRate;
-      }
+        if (mType === 'FERTILIZER' && mIdx === 0) {
+          totalWeightKg = inputQty * unitSize;
+          const per10aKg = totalWeightKg / (totalAreaA / 10.0);
+          nPer10a = per10aKg * (nPct / 100.0);
+          pPer10a = per10aKg * (pPct / 100.0);
+          kPer10a = per10aKg * (kPct / 100.0);
+          nTotalKg = totalWeightKg * (nPct / 100.0);
+          pTotalKg = totalWeightKg * (pPct / 100.0);
+          kTotalKg = totalWeightKg * (kPct / 100.0);
+        } else if (mType === 'PESTICIDE' && dilutionRate > 0 && mIdx === 0) {
+          totalChemMl = (waterVolL * 1000.0) / dilutionRate;
+        }
 
-      // 資材在庫の引き落とし（メモリ上で累積）
-      m[13] = Math.max(0, Number(m[13] || 0) - inputQty);
+        // 資材在庫の引き落とし（混用時は各剤を差し引く）
+        const deduct = matchedMats.length > 1 && mType === 'PESTICIDE'
+          ? Math.max(1, Math.ceil(((waterVolL * 1000.0) / Math.max(1, dilutionRate)) / Math.max(1, unitSize || 500)))
+          : inputQty;
+        m[13] = Math.max(0, Number(m[13] || 0) - deduct);
+      });
     }
 
     // 機械アワーメーターの自動加算（メモリ上で累積）
@@ -513,11 +520,16 @@ function refreshA4ReportSheet() {
       const allocWaterL = Number((Number(l[12] || 0) * areaRatio).toFixed(1));
       const matchedNames = matchedFields.map(f => f.name).join('・');
 
-      const m = matLookup[l[8]] || [];
-      repSheet.getRange(rowCursor, 1, 1, 10).setValues([[
-        l[1], matchedNames, matchedAreaA, m[2] || l[8], m[3] || '-', m[4] || '-', l[11], allocWaterL, `${l[9]}本`, '適（基準内）'
-      ]]).setBorder(true, true, true, true, true, true);
-      rowCursor++;
+      const pestIds = String(l[8] || '').split(',').map(s => s.trim()).filter(Boolean);
+      const idsToRender = pestIds.length > 0 ? pestIds : [String(l[8] || '')];
+      idsToRender.forEach((pid, pIdx) => {
+        const m = matLookup[pid] || [];
+        const mixBadge = idsToRender.length > 1 ? ` [混用${pIdx + 1}]` : '';
+        repSheet.getRange(rowCursor, 1, 1, 10).setValues([[
+          l[1], matchedNames, matchedAreaA, (m[2] || pid) + mixBadge, m[3] || '-', m[4] || '-', l[11], allocWaterL, `${l[9]}本`, '適（基準内）'
+        ]]).setBorder(true, true, true, true, true, true);
+        rowCursor++;
+      });
     }
   }
 

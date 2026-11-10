@@ -9,7 +9,12 @@
 ```text
 rakuraku-einou-next/
 ├── README.md                           # プロジェクト総合ガイド（本ファイル）
-├── index.html                          # 本格PWA版 Webアプリ本体（オフライン永続化・GIS・面積按分・A4帳票・他社データ移行搭載）
+├── index.html                          # 本格PWA版 Webアプリ本体（UIマークアップ）
+├── css/
+│   └── styles.css                      # カラースキーム変数・GISポリゴン・A4印刷用スタイル定義
+├── js/
+│   ├── data.js                         # マスタ・初期状態・LocalStorage永続化・累計再計算エンジン
+│   └── app.js                          # 現場一括入力・混用防除＆有効成分判定・動的GIS・A4帳票・データ移行ロジック
 ├── manifest.json                       # PWA スマホホーム画面インストール用マニフェスト
 ├── sw.js                               # 完全オフライン動作用 Service Worker
 ├── docs/                               # 設計書・仕様書・ロードマップ一式

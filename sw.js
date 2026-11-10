@@ -1,9 +1,12 @@
-const CACHE_NAME = 'rakuraku-einou-pwa-v2';
+const CACHE_NAME = 'rakuraku-einou-pwa-v3';
 // 同一オリジンの必須ファイル（1つでも失敗したらインストール失敗にする）
 const LOCAL_ASSETS = [
   './',
   './index.html',
-  './manifest.json'
+  './manifest.json',
+  './css/styles.css',
+  './js/data.js',
+  './js/app.js'
 ];
 // 外部CDN（取得失敗してもインストール自体は継続する）
 const CDN_ASSETS = [
