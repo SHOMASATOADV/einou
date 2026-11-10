@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rakuraku-einou-pwa-v3';
+const CACHE_NAME = 'rakuraku-einou-pwa-v4';
 // 同一オリジンの必須ファイル（1つでも失敗したらインストール失敗にする）
 const LOCAL_ASSETS = [
   './',
