@@ -295,30 +295,70 @@ function getLogPesticideIds(log) {
   return [];
 }
 
+/**
+ * 農薬の規格単位（液剤mLボトル vs 粒剤kg袋）に応じて消費数量（本数または袋数）を算出する（M-9対応）
+ */
+function calcPesticideUnitQty(pest, totalAreaA, totalChemMl) {
+  if (!pest) return Math.max(1, Math.ceil((Number(totalChemMl) || 0) / 500));
+  const unitStr = String(pest.unit || '');
+  if (unitStr.includes('袋') || unitStr.includes('kg')) {
+    const bagKg = Number(pest.unitSizeKg) || 3;
+    const rateKgPer10a = Number(pest.rateKgPer10a) || 1.0;
+    const neededKg = (Math.max(0, Number(totalAreaA) || 0) / 10) * rateKgPer10a;
+    return Math.max(1, Math.ceil(neededKg / bagKg));
+  }
+  const bottleMl = Number(pest.unitSizeMl) || 500;
+  return Math.max(1, Math.ceil((Number(totalChemMl) || 0) / bottleMl));
+}
+
 // =========================================================================
-// ① 水稲「出穂後積算温度（1,000℃）」＆ 刈取適期予測エンジン
+// ① 水稲「出穂後積算温度（1,000℃）」＆ 刈取適期予測エンジン（M-3対応：当日・作業日＆日誌実測気温連動）
 // =========================================================================
 function calcAccumulatedTempStats(field, refDateStr) {
-  const headingStr = field.headingDate || '2026/08/08';
+  const headingStr = dateKey_(field.headingDate || '2026/08/08');
   const targetC = Number(field.targetTempC) || (String(field.crop || '').includes('つきあかり') ? 950 : 1000);
-  const dailyMean = Number(field.dailyMeanTempC) || (field.group === 'yama' ? 23.2 : 25.5);
+  const defaultDailyMean = Number(field.dailyMeanTempC) || (field.group === 'yama' ? 23.2 : 25.5);
 
-  const headMs = new Date(String(headingStr).replace(/\//g, '-')).setHours(0, 0, 0, 0);
-  // 基準日は指定日（または収穫予定日前の9月15日基準で登熟進捗をシミュレーション）
-  const baseStr = refDateStr || '2026-09-12';
-  const baseMs = new Date(String(baseStr).replace(/\//g, '-')).setHours(0, 0, 0, 0);
+  const headMs = new Date(headingStr.replace(/\//g, '-')).setHours(0, 0, 0, 0);
+  const uiDateStr = (typeof document !== 'undefined' && document.getElementById('workDateInput')?.value) || '';
+  let baseStr = refDateStr || uiDateStr || getTodayIsoDate();
+
+  // オフシーズン（収穫予定日を大幅に過ぎた10月以降など）に閲覧した場合は収穫予定日または直近作業日を基準にキャップ
+  const harvStr = dateKey_(field.harvest || '2026/09/20');
+  const harvMs = new Date(harvStr.replace(/\//g, '-')).setHours(0, 0, 0, 0);
+  let baseMs = new Date(String(baseStr).replace(/\//g, '-')).setHours(0, 0, 0, 0);
+  if (!refDateStr && !isNaN(harvMs) && !isNaN(baseMs) && baseMs > harvMs + 10 * 86400000) {
+    baseMs = harvMs;
+  }
 
   let elapsedDays = 0;
   if (!isNaN(headMs) && !isNaN(baseMs)) {
     elapsedDays = Math.max(0, Math.floor((baseMs - headMs) / (1000 * 60 * 60 * 24)));
   }
 
-  const accumulatedC = Math.round(elapsedDays * dailyMean);
+  // 出穂日〜基準日の間に記録された作業日誌の気温（tempC）があれば実測値として反映
+  const recordedTempByDate = {};
+  (workLogs || []).forEach(l => {
+    if (!l || l.tempC === undefined || l.tempC === '') return;
+    if (Array.isArray(l.fieldIds) && l.fieldIds.includes(field.id)) {
+      const dk = dateKey_(l.date);
+      const lMs = new Date(dk.replace(/\//g, '-')).setHours(0, 0, 0, 0);
+      if (!isNaN(lMs) && lMs >= headMs && lMs <= baseMs) {
+        recordedTempByDate[dk] = Number(l.tempC);
+      }
+    }
+  });
+  const recordedDays = Object.keys(recordedTempByDate).length;
+  const recordedSumC = Object.values(recordedTempByDate).reduce((s, v) => s + v, 0);
+  const unrecordedDays = Math.max(0, elapsedDays - recordedDays);
+  const accumulatedC = Math.round(recordedSumC + unrecordedDays * defaultDailyMean);
+  const effectiveMean = elapsedDays > 0 ? Math.round((accumulatedC / elapsedDays) * 10) / 10 : defaultDailyMean;
+
   const pct = Math.min(100, Math.round((accumulatedC / targetC) * 100));
   const remainC = Math.max(0, targetC - accumulatedC);
-  const remainDays = Math.ceil(remainC / dailyMean);
+  const remainDays = Math.ceil(remainC / effectiveMean);
 
-  const totalDaysNeeded = Math.ceil(targetC / dailyMean);
+  const totalDaysNeeded = Math.ceil(targetC / effectiveMean);
   let predictedDateStr = field.harvest || '2026/09/20';
   if (!isNaN(headMs)) {
     const predDate = new Date(headMs + totalDaysNeeded * 24 * 60 * 60 * 1000);
@@ -341,8 +381,8 @@ function calcAccumulatedTempStats(field, refDateStr) {
   return {
     headingDate: headingStr,
     targetC,
-    dailyMean,
-    meanTemp: dailyMean,
+    dailyMean: effectiveMean,
+    meanTemp: effectiveMean,
     elapsedDays,
     accumulatedC,
     pct,
@@ -375,23 +415,27 @@ function calcFieldProfitability(field) {
     const allocHr = (Number(l.duration) || 0) * ratio;
     cumHr += allocHr;
 
-    if (l.machineId && machines[l.machineId]) {
-      const mRate = Number(machines[l.machineId].hourlyCostYen) || 2000;
+    if (l.machineId) {
+      const mObj = machines[l.machineId] || DEFAULT_STATE.machines[l.machineId];
+      const mRate = Number(l.machineHourlyCostYen || mObj?.hourlyCostYen) || 2000;
       machineCostYen += allocHr * mRate;
     }
 
     if (l.type === 'fertilizer') {
-      const fertObj = fertilizers[l.materialId] || Object.values(fertilizers)[0];
-      const bagPrice = Number(fertObj?.priceYen) || 2450;
-      const bags = Number(l.inputQty) || ((Number(l.totalKg) || 0) / 20);
+      const fertObj = fertilizers[l.materialId] || DEFAULT_STATE.fertilizers[l.materialId];
+      const bagPrice = Number(l.unitPriceYen || fertObj?.priceYen) || 2450;
+      const unitKg = Number(fertObj?.unitKg) || 20;
+      const bags = Number(l.inputQty) || ((Number(l.totalKg) || 0) / unitKg);
       fertCostYen += bags * bagPrice * ratio;
     } else if (l.type === 'pesticide') {
       const pids = getLogPesticideIds(l);
-      const bottles = Number(l.inputQty) || 1;
+      const qtyMap = l.stockDeductedByMap || {};
+      const priceMap = l.unitPriceByMap || {};
       pids.forEach(pid => {
-        const pObj = pesticides[pid];
-        const unitPrice = Number(pObj?.priceYen) || 3000;
-        pestCostYen += bottles * unitPrice * ratio;
+        const pObj = pesticides[pid] || DEFAULT_STATE.pesticides[pid];
+        const unitQty = Number(qtyMap[pid] || l.inputQty) || 1;
+        const unitPrice = Number(priceMap[pid] || pObj?.priceYen) || 3000;
+        pestCostYen += unitQty * unitPrice * ratio;
       });
     }
   });
@@ -538,7 +582,14 @@ function saveStateToStorage() {
       gasWebhookUrl,
       gasSyncToken
     }));
-  } catch (e) {}
+  } catch (e) {
+    if (typeof showToast === 'function') {
+      showToast(
+        '⚠️ 端末内ストレージ（localStorage）の保存上限に達しました',
+        'データが失われないよう、タブ5「他社データ移行・設定」から「JSONバックアップを保存」してください。'
+      );
+    }
+  }
   if (typeof updateSyncBadge === 'function') updateSyncBadge();
 }
 
@@ -554,8 +605,16 @@ function logAreaRatio_(log, field) {
   return total > 0 ? (field.area / total) : 0;
 }
 
+/**
+ * 日付文字列（例: "2026/5/1", "2026-5-1", "2026/05/01"）をゼロ埋め "YYYY/MM/DD" に正規化する（M-11対応）
+ */
 function dateKey_(d) {
-  return String(d || '').replace(/-/g, '/');
+  const raw = String(d || '').trim().replace(/-/g, '/');
+  const m = raw.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  if (m) {
+    return `${m[1]}/${m[2].padStart(2, '0')}/${m[3].padStart(2, '0')}`;
+  }
+  return raw;
 }
 
 function ensureFieldBaselines() {
@@ -611,12 +670,16 @@ function recalculateFieldStats() {
       .sort((a, b2) => dateKey_(a.l.date).localeCompare(dateKey_(b2.l.date)) || (b2.idx - a.idx))
       .map(x => x.l);
 
+    const logIngredientFallback = {};
     logs.forEach(l => {
       if (l.type === 'fertilizer') {
         n += Number(l.n10a) || 0;
         p += Number(l.p10a) || 0;
         k += Number(l.k10a) || 0;
       } else if (l.type === 'pesticide') {
+        if (l.activeIngredientByMap && typeof l.activeIngredientByMap === 'object') {
+          Object.assign(logIngredientFallback, l.activeIngredientByMap);
+        }
         getLogPesticideIds(l).forEach(pid => {
           pestCount[pid] = (pestCount[pid] || 0) + 1;
         });
@@ -632,8 +695,8 @@ function recalculateFieldStats() {
     const ingredientCount = {};
     Object.entries(pestCount).forEach(([pid, count]) => {
       if (!count || count <= 0) return;
-      const pObj = pesticides[pid];
-      const ing = (pObj && pObj.activeIngredient) ? pObj.activeIngredient : pid;
+      const pObj = pesticides[pid] || DEFAULT_STATE.pesticides[pid];
+      const ing = (pObj && pObj.activeIngredient) ? pObj.activeIngredient : (logIngredientFallback[pid] || pid);
       ingredientCount[ing] = (ingredientCount[ing] || 0) + count;
     });
 

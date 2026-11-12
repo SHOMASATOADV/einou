@@ -45,15 +45,14 @@ function initApp() {
     document.getElementById('simHourlyWageInput').value = costSettings.hourlyWageYen || 1500;
   }
 
-  // 帳票出力日を本日の日付で動的初期化
+  // 帳票出力日および作業日入力欄を本日の日付で動的初期化
   const now = new Date();
   const dateLabel = document.getElementById('jaHeaderDateLabel');
   if (dateLabel) {
     dateLabel.textContent = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
   }
-  // 当日が収穫予定日前のシーズン中であれば作業日入力欄も当日で初期化
   const todayIso = getTodayIsoDate();
-  if (todayIso <= '2026-09-01') {
+  if (document.getElementById('workDateInput')) {
     document.getElementById('workDateInput').value = todayIso;
   }
 
@@ -681,9 +680,11 @@ function toggleFieldSelection(fieldId) {
 
 function selectFieldGroup(groupType) {
   if (groupType === 'gps') {
-    selectedFieldIds = ['F01', 'F02', 'F03'];
+    const gpsIds = fieldsData.filter(f => f.group === 'gps').map(f => f.id);
+    selectedFieldIds = gpsIds.length > 0 ? gpsIds : fieldsData.slice(0, 3).map(f => f.id);
   } else if (groupType === 'yama') {
-    selectedFieldIds = fieldsData.filter(f => f.group === 'yama').map(f => f.id);
+    const yamaIds = fieldsData.filter(f => f.group === 'yama').map(f => f.id);
+    selectedFieldIds = yamaIds.length > 0 ? yamaIds : fieldsData.map(f => f.id);
   } else {
     selectedFieldIds = fieldsData.map(f => f.id);
   }
@@ -691,36 +692,68 @@ function selectFieldGroup(groupType) {
   recalculatePreview();
 }
 
-// プリセット適用
+// プリセット適用（実際の直近作業履歴を参照し、存在しない場合は登録済マスタへフォールバック）
 function applyPreset(presetType) {
+  const catMap = { fertilizer: '施肥', pesticide: '防除', mowing: '草刈り' };
+  const targetCat = catMap[presetType] || '施肥';
+  const sortedLogs = [...workLogs].sort((a, b) => dateKey_(b.date).localeCompare(dateKey_(a.date)));
+  const latestLog = sortedLogs.find(l => l.cat === targetCat);
+
+  const validFieldIds = (ids) => {
+    const filtered = (ids || []).filter(id => fieldsData.some(f => f.id === id));
+    return filtered.length > 0 ? filtered : fieldsData.slice(0, 3).map(f => f.id);
+  };
+  const validMachId = (id, fallback) => {
+    if (id && machines[id]) return id;
+    if (fallback && machines[fallback]) return fallback;
+    return Object.keys(machines)[0] || 'NONE';
+  };
+
   if (presetType === 'fertilizer') {
-    selectedFieldIds = ['F01', 'F02', 'F03'];
-    currentDuration = 2.0;
-    currentBags = 10;
-    document.getElementById('machineSelect').value = 'M01';
-    document.getElementById('fertilizerSelect').value = 'F01';
+    selectedFieldIds = validFieldIds(latestLog?.fieldIds || ['F01', 'F02', 'F03']);
+    currentDuration = Number(latestLog?.duration) || 2.0;
+    currentBags = Number(latestLog?.inputQty) || 10;
+    document.getElementById('machineSelect').value = validMachId(latestLog?.machineId, 'M01');
+    const fertId = (latestLog?.materialId && fertilizers[latestLog.materialId])
+      ? latestLog.materialId
+      : (fertilizers['F01'] ? 'F01' : Object.keys(fertilizers)[0] || '');
+    if (fertId) document.getElementById('fertilizerSelect').value = fertId;
     selectWorkCat('施肥');
   } else if (presetType === 'pesticide') {
-    selectedFieldIds = ['F01', 'F02', 'F03'];
-    currentDuration = 1.5;
-    document.getElementById('machineSelect').value = 'M03';
-    document.getElementById('pesticideSelect').value = 'P01';
+    selectedFieldIds = validFieldIds(latestLog?.fieldIds || ['F01', 'F02', 'F03']);
+    currentDuration = Number(latestLog?.duration) || 1.5;
+    document.getElementById('machineSelect').value = validMachId(latestLog?.machineId, 'M03');
+    const logPids = latestLog ? getLogPesticideIds(latestLog).filter(id => pesticides[id]) : [];
+    const allPestKeys = Object.keys(pesticides);
+    const p1 = logPids[0] || (pesticides['P01'] ? 'P01' : allPestKeys[0] || '');
+    const p2 = logPids[1] || (!latestLog && pesticides['P02'] ? 'P02' : 'NONE');
+    if (p1) document.getElementById('pesticideSelect').value = p1;
     if (document.getElementById('pesticideMixSelect')) {
-      document.getElementById('pesticideMixSelect').value = 'P02';
+      document.getElementById('pesticideMixSelect').value = (p2 && p2 !== p1 && pesticides[p2]) ? p2 : 'NONE';
     }
-    document.getElementById('dilutionSelect').value = '8_0.8';
+    const dilSel = document.getElementById('dilutionSelect');
+    if (latestLog?.dilutionRate && dilSel) {
+      const opt = [...dilSel.options].find(o => o.value.split('_')[0] === String(latestLog.dilutionRate));
+      if (opt) dilSel.value = opt.value;
+    } else if (dilSel) {
+      dilSel.value = '8_0.8';
+    }
     selectWorkCat('防除');
   } else if (presetType === 'mowing') {
-    selectedFieldIds = ['F05', 'F06', 'F07'];
-    currentDuration = 2.5;
-    document.getElementById('machineSelect').value = 'M02';
+    const yamaDefault = fieldsData.filter(f => f.group === 'yama').map(f => f.id);
+    selectedFieldIds = validFieldIds(latestLog?.fieldIds || (yamaDefault.length > 0 ? yamaDefault : ['F05', 'F06', 'F07']));
+    currentDuration = Number(latestLog?.duration) || 2.5;
+    document.getElementById('machineSelect').value = validMachId(latestLog?.machineId, 'M02');
     selectWorkCat('草刈り');
   }
   document.getElementById('durationValue').textContent = currentDuration.toFixed(1);
   document.getElementById('bagCountValue').textContent = currentBags;
   renderInputFieldGrid();
   recalculatePreview();
-  showToast('⚡ 前回履歴からプリセットを呼び出しました', '対象圃場や数量を確認し、1タップで登録できます。');
+  showToast(
+    latestLog ? `⚡ 直近の「${targetCat}」履歴（${latestLog.date}）を呼び出しました` : `⚡ 「${targetCat}」の標準プリセットを呼び出しました`,
+    '対象圃場や数量を確認し、1タップで登録できます。'
+  );
 }
 
 function selectWorkCat(cat) {
@@ -991,10 +1024,10 @@ function recalculatePreview() {
     document.getElementById('previewStockSummary').textContent =
       `${fert.name}: 現在庫 ${fert.stock}袋 → 登録後 ${Math.max(0, fert.stock - currentBags)}袋`;
   } else if (currentWorkCat === '防除') {
-    const usedBottles = Math.max(1, Math.ceil(totalChemMl / 500));
-    document.getElementById('previewStockSummary').textContent = selectedPests.map(p =>
-      `${p.name}: 残${p.stock} → ${Math.max(0, p.stock - usedBottles)}`
-    ).join(' ／ ');
+    document.getElementById('previewStockSummary').textContent = selectedPests.map(p => {
+      const unitInfo = calcPesticideUnitQty(p, totalArea, totalChemMl);
+      return `${p.name}: 残${p.stock}${unitInfo.unitLabel} → ${Math.max(0, p.stock - unitInfo.qty)}${unitInfo.unitLabel}`;
+    }).join(' ／ ');
   } else if (currentWorkCat === '収穫') {
     const grade = document.getElementById('harvestGradeSelect')?.value || '1等';
     const moist = document.getElementById('harvestMoistureInput')?.value || '14.8';
@@ -1160,7 +1193,7 @@ function submitUnifiedWorkLog() {
 
     let newLog = {
       id: (editingBackup && editingBackup.log && editingBackup.log.id) ? editingBackup.log.id : ('WL-' + Date.now()),
-      date: formattedDate,
+      date: dateKey_(formattedDate),
       cat: currentWorkCat,
       worker: workerName,
       weather: weatherVal,
@@ -1171,6 +1204,7 @@ function submitUnifiedWorkLog() {
       duration: currentDuration,
       machineId: machId !== 'NONE' ? machId : '',
       machineName: machineName,
+      machineHourlyCostYen: (machId !== 'NONE' && machines[machId]) ? (Number(machines[machId].hourlyCostYen) || 0) : 0,
       materialSummary: `${currentWorkCat}作業完了`,
       type: 'general',
       synced: false
@@ -1189,6 +1223,7 @@ function submitUnifiedWorkLog() {
       newLog.materialId = fert.id || fertId;
       newLog.inputQty = currentBags;
       newLog.stockDeducted = Math.min(fert.stock, currentBags);
+      newLog.unitPriceYen = Number(fert.priceYen) || 0;
       newLog.fertName = fert.name;
       newLog.npkLabel = `${fert.n}-${fert.p}-${fert.k}`;
       newLog.totalKg = totalKg;
@@ -1206,11 +1241,16 @@ function submitUnifiedWorkLog() {
       const [dilRate, waterPer10a] = document.getElementById('dilutionSelect').value.split('_').map(Number);
       const totalWaterL = (totalArea / 10) * waterPer10a;
       const totalChemMl = (totalWaterL * 1000) / dilRate;
-      const usedBottles = Math.max(1, Math.ceil(totalChemMl / 500));
+      const primaryUnitInfo = calcPesticideUnitQty(selectedPests[0], totalArea, totalChemMl);
 
       const stockDeductedByMap = {};
+      const unitPriceByMap = {};
+      const activeIngredientByMap = {};
       selectedPests.forEach(p => {
-        stockDeductedByMap[p.id] = Math.min(p.stock, usedBottles);
+        const uInfo = calcPesticideUnitQty(p, totalArea, totalChemMl);
+        stockDeductedByMap[p.id] = Math.min(p.stock, uInfo.qty);
+        unitPriceByMap[p.id] = Number(p.priceYen) || 0;
+        activeIngredientByMap[p.id] = p.activeIngredient || p.name;
       });
 
       const pestNamesLabel = selectedPests.map(p => `${p.name} (${p.regNo})`).join(' ＋ ');
@@ -1220,9 +1260,11 @@ function submitUnifiedWorkLog() {
       newLog.type = 'pesticide';
       newLog.materialId = selectedPestIds.join(',');
       newLog.materialIds = selectedPestIds;
-      newLog.inputQty = usedBottles;
-      newLog.stockDeducted = usedBottles;
+      newLog.inputQty = primaryUnitInfo.qty;
+      newLog.stockDeducted = primaryUnitInfo.qty;
       newLog.stockDeductedByMap = stockDeductedByMap;
+      newLog.unitPriceByMap = unitPriceByMap;
+      newLog.activeIngredientByMap = activeIngredientByMap;
       newLog.dilutionRate = dilRate;
       newLog.pestName = pestNamesLabel;
       newLog.dilution = `${dilRate}倍${selectedPests.length > 1 ? ' (混用)' : ''}`;
@@ -2282,7 +2324,8 @@ function addNewFertilizerMaster(source) {
     return;
   }
 
-  const newId = generateNextId('F', Object.keys(fertilizers));
+  // 圃場ID(F01...)とのプレフィックス衝突を避けるため新規肥料は FT01... で採番
+  const newId = generateNextId('FT', Object.keys(fertilizers));
   fertilizers[newId] = { id: newId, name, unitKg, n, p, k, stock, minStock: 10, priceYen };
   if (nameEl) nameEl.value = '';
   if (isQuick) toggleQuickAddPanel('quickFertForm', false);
@@ -2589,20 +2632,25 @@ function parseAndPreviewMigrationText() {
 
       const rawFieldNames = fieldIdx !== -1 && cols[fieldIdx] ? cols[fieldIdx].split(/[・,、]/) : ['① 本場1号'];
       const matchedIds = [];
+      const unmatchedFieldNames = [];
       rawFieldNames.forEach(fn => {
         const trimmed = fn.trim();
         if (!trimmed) return;
         const found = fieldsData.find(f => f.name.includes(trimmed) || trimmed.includes(f.name) || f.id === trimmed);
-        if (found && !matchedIds.includes(found.id)) matchedIds.push(found.id);
+        if (found) {
+          if (!matchedIds.includes(found.id)) matchedIds.push(found.id);
+        } else {
+          unmatchedFieldNames.push(trimmed);
+        }
       });
-      if (matchedIds.length === 0) matchedIds.push('F01');
 
       return {
         id: `IMP-WL-${Date.now()}-${rowIdx + 1}-${Math.random().toString(36).slice(2, 5)}`,
-        date: (cols[dateIdx] || '').replace(/-/g, '/'),
+        date: dateKey_(cols[dateIdx] || ''),
         cat: cat,
         worker: workerIdx !== -1 && cols[workerIdx] ? cols[workerIdx] : '佐藤 健一',
         fieldIds: matchedIds,
+        unmatchedFieldNames: unmatchedFieldNames,
         fieldNamesLabel: cols[fieldIdx] || '① 本場1号',
         totalArea: areaA,
         duration: durIdx !== -1 ? Number(cols[durIdx] || 1.0) : 1.0,
@@ -2620,17 +2668,22 @@ function parseAndPreviewMigrationText() {
       };
     });
 
-    tHead.innerHTML = `<tr><th class="p-2">作業日</th><th class="p-2">分類</th><th class="p-2">対象圃場</th><th class="p-2">換算面積</th><th class="p-2">時間</th><th class="p-2">資材・NPK自動計算</th></tr>`;
-    tBody.innerHTML = pendingMigrationItems.map(item => `
+    tHead.innerHTML = `<tr><th class="p-2">作業日</th><th class="p-2">分類</th><th class="p-2">対象圃場（マッチング結果）</th><th class="p-2">換算面積</th><th class="p-2">時間</th><th class="p-2">資材・NPK自動計算</th></tr>`;
+    tBody.innerHTML = pendingMigrationItems.map(item => {
+      const unmatchedBadge = (item.unmatchedFieldNames && item.unmatchedFieldNames.length > 0)
+        ? `<span class="ml-1 inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">🆕 未登録圃場「${escapeHtml(item.unmatchedFieldNames.join('・'))}」を自動追加して紐付け</span>`
+        : `<span class="ml-1 inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">✓ 既存圃場(${escapeHtml(item.fieldIds.join(','))})に一致</span>`;
+      return `
       <tr>
         <td class="p-2">${escapeHtml(item.date)}</td>
         <td class="p-2 font-bold text-emerald-600">${escapeHtml(item.cat)}</td>
-        <td class="p-2">${escapeHtml(item.fieldNamesLabel)}</td>
+        <td class="p-2">${escapeHtml(item.fieldNamesLabel)} ${unmatchedBadge}</td>
         <td class="p-2 font-bold">${escapeHtml(item.totalArea)} a</td>
         <td class="p-2">${escapeHtml(item.duration)} h</td>
         <td class="p-2">${escapeHtml(item.materialSummary)}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
   } else {
     pendingMigrationMode = 'fields';
     badge.textContent = '📗 他社アプリ ほ場台帳CSV 検出';
@@ -2669,7 +2722,7 @@ function parseAndPreviewMigrationText() {
         area: areaA,
         rawAreaNote: note,
         crop: cropIdx !== -1 && cols[cropIdx] ? cols[cropIdx] : 'コシヒカリ (BL)',
-        harvest: harvIdx !== -1 && cols[harvIdx] ? cols[harvIdx].replace(/-/g, '/') : '2026/09/22',
+        harvest: harvIdx !== -1 && cols[harvIdx] ? dateKey_(cols[harvIdx]) : '2026/09/22',
         lat: latIdx !== -1 && cols[latIdx] ? Number(cols[latIdx]) : 37.9165,
         lng: lngIdx !== -1 && cols[lngIdx] ? Number(cols[lngIdx]) : 139.0370
       };
@@ -2728,15 +2781,59 @@ function executeMigrationImport() {
       '面積単位（㎡/ha → a）やGeoJSONポリゴン形状も自動変換され、GISマップ・現場入力に即時追加されました。'
     );
   } else {
+    let autoCreatedFields = 0;
     pendingMigrationItems.forEach(logItem => {
-      workLogs.unshift(logItem);
+      const finalFieldIds = [...(logItem.fieldIds || [])];
+      const unmatched = logItem.unmatchedFieldNames || [];
+      if (unmatched.length > 0) {
+        const perFieldArea = Math.max(5, Math.round((Number(logItem.totalArea) || 20) / Math.max(1, finalFieldIds.length + unmatched.length)));
+        unmatched.forEach(rawName => {
+          let existing = fieldsData.find(f => f.name === rawName || f.name.includes(rawName) || rawName.includes(f.name));
+          if (!existing) {
+            const newId = generateNextId('F', fieldsData.map(f => f.id));
+            existing = {
+              id: newId,
+              name: rawName,
+              lot: '作業履歴CSVから自動登録',
+              group: 'yama',
+              area: perFieldArea,
+              crop: 'コシヒカリ (BL)',
+              headingDate: '2026/08/08',
+              targetTempC: 1000,
+              dailyMeanTempC: 24.0,
+              harvest: '2026/09/22',
+              stage: '未着手',
+              lat: 37.9165 + (fieldsData.length * 0.0004),
+              lng: 139.0370 + (fieldsData.length * 0.0004),
+              doneCats: [],
+              nPer10a: 0,
+              pPer10a: 0,
+              kPer10a: 0,
+              pestCount: {},
+              alerts: [],
+              baseline: makeEmptyBaseline()
+            };
+            fieldsData.push(existing);
+            autoCreatedFields++;
+          }
+          if (!finalFieldIds.includes(existing.id)) finalFieldIds.push(existing.id);
+        });
+      }
+      if (finalFieldIds.length === 0 && fieldsData[0]) {
+        finalFieldIds.push(fieldsData[0].id);
+      }
+      const cleanLog = { ...logItem, fieldIds: finalFieldIds };
+      delete cleanLog.unmatchedFieldNames;
+      workLogs.unshift(cleanLog);
     });
     recalculateFieldStats();
     saveStateToStorage();
     refreshAllViews();
     showToast(
       `🎉 他社アプリから ${pendingMigrationItems.length} 件の作業・施肥履歴を一括インポートしました！`,
-      '各圃場の進捗・累計NPKおよびJA提出用A4帳票へ即時反映されました（取消・修正も可能）。'
+      autoCreatedFields > 0
+        ? `未登録だった圃場 ${autoCreatedFields} 筆も自動追加して紐付けました（F01への誤混入を防止）。`
+        : '各圃場の進捗・累計NPKおよびJA提出用A4帳票へ即時反映されました（取消・修正も可能）。'
     );
   }
 

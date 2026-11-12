@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rakuraku-einou-pwa-v8';
+const CACHE_NAME = 'rakuraku-einou-pwa-v9';
 // 航空写真タイル専用キャッシュ（上限件数を超えたら古い順に削除して肥大化を防ぐ）
 const TILE_CACHE_NAME = 'rakuraku-einou-tiles-v1';
 const TILE_CACHE_MAX_ENTRIES = 600;
@@ -81,6 +81,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // 同一オリジン（HTML/CSS/JS）は Network-First（オンライン時は最新版を取得してキャッシュ更新、圏外時はキャッシュ返却）
+  if (url.origin === self.location.origin) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // 外部CDNアセットは Cache-First（オフライン耐性・高速表示を優先）
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       return (
