@@ -37,6 +37,7 @@ function initApp() {
   ensureFieldBaselines();
   recalculateFieldStats();
   document.getElementById('gasWebhookUrl').value = gasWebhookUrl;
+  if (document.getElementById('gasSyncToken')) document.getElementById('gasSyncToken').value = gasSyncToken;
   if (document.getElementById('simRicePriceInput') && typeof costSettings === 'object') {
     document.getElementById('simRicePriceInput').value = costSettings.ricePricePerTawaraYen || 18500;
   }
@@ -308,7 +309,7 @@ function renderLeafletFieldMap_(target) {
   if (typeof L === 'undefined') {
     container.innerHTML = `
       <div class="w-full h-full flex flex-col items-center justify-center p-4 text-center text-white text-xs space-y-2">
-        <div class="font-bold text-amber-300">📡 現在オフラインのためGoogle航空写真タイルを読み込めません</div>
+        <div class="font-bold text-amber-300">📡 現在オフラインのため航空写真タイル（国土地理院）を読み込めません</div>
         <div class="text-stone-300">下のボタンから各圃場を直接選択するか、オンライン復帰後に航空写真を表示できます。</div>
         <div class="flex flex-wrap justify-center gap-1.5 mt-2">
           ${fieldsData.map(f => {
@@ -326,9 +327,12 @@ function renderLeafletFieldMap_(target) {
     const centerLat = fieldsData[0]?.lat || 37.9161;
     const centerLng = fieldsData[0]?.lng || 139.0364;
     const map = L.map(container, { center: [centerLat, centerLng], zoom: 16 });
-    L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+    // 国土地理院「全国最新写真（シームレス）」タイル（出典表記で商用利用可）
+    // ※ Googleのタイルサーバー直接参照は Google Maps Platform 利用規約に抵触するため使用しない
+    L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', {
       maxZoom: 20,
-      attribution: 'Map data &copy; Google Satellite'
+      maxNativeZoom: 18,
+      attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>'
     }).addTo(map);
     _leafletLayers[target] = L.layerGroup().addTo(map);
     _leafletMaps[target] = map;
@@ -1138,123 +1142,136 @@ function submitUnifiedWorkLog() {
   const editingBackup = isEditing ? removeWorkLog_(editingLogId) : null;
   const abort = () => { restoreWorkLog_(editingBackup); };
 
-  if (currentWorkCat === '防除') {
-    const selectedPestIds = getSelectedPesticideIdsFromUi_();
-    const safety = evaluatePesticideSafety_(selectedFields, selectedPestIds, workDateRaw);
-    if (!safety.ok) {
-      abort();
-      const plainMsg = safety.allMessages.map(m => m.replace(/<[^>]+>/g, '')).join(' ／ ');
-      showToast('⛔ 安全基準エラー（農薬・有効成分上限または収穫前日数違反）：登録をブロックしました', plainMsg);
-      return;
+  try {
+    if (currentWorkCat === '防除') {
+      const selectedPestIds = getSelectedPesticideIdsFromUi_();
+      const safety = evaluatePesticideSafety_(selectedFields, selectedPestIds, workDateRaw);
+      if (!safety.ok) {
+        abort();
+        const plainMsg = safety.allMessages.map(m => m.replace(/<[^>]+>/g, '')).join(' ／ ');
+        showToast('⛔ 安全基準エラー（農薬・有効成分上限または収穫前日数違反）：登録をブロックしました', plainMsg);
+        return;
+      }
     }
+
+    const weatherVal = document.getElementById('workWeatherSelect')?.value || '☀️ 晴れ';
+    const tempVal = Number(document.getElementById('workTempInput')?.value || 25);
+    const memoVal = (document.getElementById('workDiaryMemoInput')?.value || '').trim();
+
+    let newLog = {
+      id: (editingBackup && editingBackup.log && editingBackup.log.id) ? editingBackup.log.id : ('WL-' + Date.now()),
+      date: formattedDate,
+      cat: currentWorkCat,
+      worker: workerName,
+      weather: weatherVal,
+      tempC: tempVal,
+      memo: memoVal,
+      fieldIds: selectedFields.map(f => f.id),
+      totalArea: totalArea,
+      duration: currentDuration,
+      machineId: machId !== 'NONE' ? machId : '',
+      machineName: machineName,
+      materialSummary: `${currentWorkCat}作業完了`,
+      type: 'general',
+      synced: false
+    };
+
+    if (currentWorkCat === '施肥') {
+      const fertId = document.getElementById('fertilizerSelect').value;
+      const fert = fertilizers[fertId] || Object.values(fertilizers)[0];
+      if (!fert) {
+        throw new Error('有効な肥料マスタが選択されていません。');
+      }
+      const totalKg = currentBags * fert.unitKg;
+      const per10aKg = totalKg / (totalArea / 10);
+
+      newLog.type = 'fertilizer';
+      newLog.materialId = fert.id || fertId;
+      newLog.inputQty = currentBags;
+      newLog.stockDeducted = Math.min(fert.stock, currentBags);
+      newLog.fertName = fert.name;
+      newLog.npkLabel = `${fert.n}-${fert.p}-${fert.k}`;
+      newLog.totalKg = totalKg;
+      newLog.per10aKg = per10aKg;
+      newLog.n10a = per10aKg * (fert.n / 100);
+      newLog.p10a = per10aKg * (fert.p / 100);
+      newLog.k10a = per10aKg * (fert.k / 100);
+      newLog.materialSummary = `${fert.name} (${currentBags}袋 / ${totalKg}kg)`;
+    } else if (currentWorkCat === '防除') {
+      const selectedPestIds = getSelectedPesticideIdsFromUi_();
+      const selectedPests = selectedPestIds.map(id => pesticides[id]).filter(Boolean);
+      if (selectedPests.length === 0) {
+        throw new Error('有効な農薬マスタが選択されていません。');
+      }
+      const [dilRate, waterPer10a] = document.getElementById('dilutionSelect').value.split('_').map(Number);
+      const totalWaterL = (totalArea / 10) * waterPer10a;
+      const totalChemMl = (totalWaterL * 1000) / dilRate;
+      const usedBottles = Math.max(1, Math.ceil(totalChemMl / 500));
+
+      const stockDeductedByMap = {};
+      selectedPests.forEach(p => {
+        stockDeductedByMap[p.id] = Math.min(p.stock, usedBottles);
+      });
+
+      const pestNamesLabel = selectedPests.map(p => `${p.name} (${p.regNo})`).join(' ＋ ');
+      const summaryNames = selectedPests.map(p => p.name).join('＋');
+      const useLimitStr = selectedPests.map(p => `${p.activeIngredient || p.name}:上限${p.maxUse}回`).join(' / ');
+
+      newLog.type = 'pesticide';
+      newLog.materialId = selectedPestIds.join(',');
+      newLog.materialIds = selectedPestIds;
+      newLog.inputQty = usedBottles;
+      newLog.stockDeducted = usedBottles;
+      newLog.stockDeductedByMap = stockDeductedByMap;
+      newLog.dilutionRate = dilRate;
+      newLog.pestName = pestNamesLabel;
+      newLog.dilution = `${dilRate}倍${selectedPests.length > 1 ? ' (混用)' : ''}`;
+      newLog.waterL = totalWaterL;
+      newLog.chemAmount = `${Math.round(totalChemMl).toLocaleString()} mL`;
+      newLog.useCountLabel = useLimitStr;
+      newLog.safetyOk = true;
+      newLog.materialSummary = `${summaryNames} (${dilRate}倍${selectedPests.length > 1 ? `・${selectedPests.length}剤混用` : ''} / 液量${totalWaterL}L)`;
+    } else if (currentWorkCat === '収穫') {
+      const harvTotalKg = currentHarvestBags * 30;
+      const yieldKg10a = totalArea > 0 ? (harvTotalKg / (totalArea / 10)) : 0;
+      const yieldTawara10a = yieldKg10a / 60;
+      const grade = document.getElementById('harvestGradeSelect')?.value || '1等';
+      const moist = document.getElementById('harvestMoistureInput')?.value || '14.8';
+
+      newLog.type = 'harvest';
+      newLog.totalKg = harvTotalKg;
+      newLog.harvestBags = currentHarvestBags;
+      newLog.yieldTawara10a = Number(yieldTawara10a.toFixed(1));
+      newLog.grade = grade;
+      newLog.moisture = moist;
+      newLog.materialSummary = `玄米 ${currentHarvestBags}袋 (${harvTotalKg}kg) / 反収 ${yieldTawara10a.toFixed(1)}俵/10a / 水分${moist}% / ${grade}`;
+    }
+
+    applyLogResourceEffects_(newLog, +1);
+
+    if (editingBackup) workLogs.splice(editingBackup.idx, 0, newLog);
+    else workLogs.unshift(newLog);
+    recalculateFieldStats();
+
+    if (isEditing) cancelEditMode(true);
+    if (document.getElementById('workDiaryMemoInput')) {
+      document.getElementById('workDiaryMemoInput').value = '';
+    }
+    saveStateToStorage();
+    refreshAllViews();
+
+    showToast(
+      isEditing
+        ? `✏️ 作業履歴・日誌を修正しました（${selectedFields.length} 筆）`
+        : `🎉 1アクションで ${selectedFields.length} 筆のカルテ＆営農日誌を端末保存しました！`,
+      `対象: ${selectedFields.map(f => f.name).join('・')} (計${totalArea}a) ／ 日誌タイムライン・A4帳票へ即時反映されました。`
+    );
+  } catch (err) {
+    abort();
+    saveStateToStorage();
+    refreshAllViews();
+    showToast('⚠️ 登録処理中にエラーが発生したため、元の履歴を復元しました', String(err && err.message ? err.message : err));
   }
-
-  const weatherVal = document.getElementById('workWeatherSelect')?.value || '☀️ 晴れ';
-  const tempVal = Number(document.getElementById('workTempInput')?.value || 25);
-  const memoVal = (document.getElementById('workDiaryMemoInput')?.value || '').trim();
-
-  let newLog = {
-    id: 'WL-' + Date.now(),
-    date: formattedDate,
-    cat: currentWorkCat,
-    worker: workerName,
-    weather: weatherVal,
-    tempC: tempVal,
-    memo: memoVal,
-    fieldIds: selectedFields.map(f => f.id),
-    totalArea: totalArea,
-    duration: currentDuration,
-    machineId: machId !== 'NONE' ? machId : '',
-    machineName: machineName,
-    materialSummary: `${currentWorkCat}作業完了`,
-    type: 'general',
-    synced: false
-  };
-
-  if (currentWorkCat === '施肥') {
-    const fertId = document.getElementById('fertilizerSelect').value;
-    const fert = fertilizers[fertId];
-    const totalKg = currentBags * fert.unitKg;
-    const per10aKg = totalKg / (totalArea / 10);
-
-    newLog.type = 'fertilizer';
-    newLog.materialId = fertId;
-    newLog.inputQty = currentBags;
-    newLog.stockDeducted = Math.min(fert.stock, currentBags);
-    newLog.fertName = fert.name;
-    newLog.npkLabel = `${fert.n}-${fert.p}-${fert.k}`;
-    newLog.totalKg = totalKg;
-    newLog.per10aKg = per10aKg;
-    newLog.n10a = per10aKg * (fert.n / 100);
-    newLog.p10a = per10aKg * (fert.p / 100);
-    newLog.k10a = per10aKg * (fert.k / 100);
-    newLog.materialSummary = `${fert.name} (${currentBags}袋 / ${totalKg}kg)`;
-  } else if (currentWorkCat === '防除') {
-    const selectedPestIds = getSelectedPesticideIdsFromUi_();
-    const selectedPests = selectedPestIds.map(id => pesticides[id]).filter(Boolean);
-    const [dilRate, waterPer10a] = document.getElementById('dilutionSelect').value.split('_').map(Number);
-    const totalWaterL = (totalArea / 10) * waterPer10a;
-    const totalChemMl = (totalWaterL * 1000) / dilRate;
-    const usedBottles = Math.max(1, Math.ceil(totalChemMl / 500));
-
-    const stockDeductedByMap = {};
-    selectedPests.forEach(p => {
-      stockDeductedByMap[p.id] = Math.min(p.stock, usedBottles);
-    });
-
-    const pestNamesLabel = selectedPests.map(p => `${p.name} (${p.regNo})`).join(' ＋ ');
-    const summaryNames = selectedPests.map(p => p.name).join('＋');
-    const useLimitStr = selectedPests.map(p => `${p.activeIngredient || p.name}:上限${p.maxUse}回`).join(' / ');
-
-    newLog.type = 'pesticide';
-    newLog.materialId = selectedPestIds.join(',');
-    newLog.materialIds = selectedPestIds;
-    newLog.inputQty = usedBottles;
-    newLog.stockDeducted = usedBottles;
-    newLog.stockDeductedByMap = stockDeductedByMap;
-    newLog.dilutionRate = dilRate;
-    newLog.pestName = pestNamesLabel;
-    newLog.dilution = `${dilRate}倍${selectedPests.length > 1 ? ' (混用)' : ''}`;
-    newLog.waterL = totalWaterL;
-    newLog.chemAmount = `${Math.round(totalChemMl).toLocaleString()} mL`;
-    newLog.useCountLabel = useLimitStr;
-    newLog.safetyOk = true;
-    newLog.materialSummary = `${summaryNames} (${dilRate}倍${selectedPests.length > 1 ? `・${selectedPests.length}剤混用` : ''} / 液量${totalWaterL}L)`;
-  } else if (currentWorkCat === '収穫') {
-    const harvTotalKg = currentHarvestBags * 30;
-    const yieldKg10a = totalArea > 0 ? (harvTotalKg / (totalArea / 10)) : 0;
-    const yieldTawara10a = yieldKg10a / 60;
-    const grade = document.getElementById('harvestGradeSelect')?.value || '1等';
-    const moist = document.getElementById('harvestMoistureInput')?.value || '14.8';
-
-    newLog.type = 'harvest';
-    newLog.totalKg = harvTotalKg;
-    newLog.harvestBags = currentHarvestBags;
-    newLog.yieldTawara10a = Number(yieldTawara10a.toFixed(1));
-    newLog.grade = grade;
-    newLog.moisture = moist;
-    newLog.materialSummary = `玄米 ${currentHarvestBags}袋 (${harvTotalKg}kg) / 反収 ${yieldTawara10a.toFixed(1)}俵/10a / 水分${moist}% / ${grade}`;
-  }
-
-  applyLogResourceEffects_(newLog, +1);
-
-  if (editingBackup) workLogs.splice(editingBackup.idx, 0, newLog);
-  else workLogs.unshift(newLog);
-  recalculateFieldStats();
-
-  if (isEditing) cancelEditMode(true);
-  if (document.getElementById('workDiaryMemoInput')) {
-    document.getElementById('workDiaryMemoInput').value = '';
-  }
-  saveStateToStorage();
-  refreshAllViews();
-
-  showToast(
-    isEditing
-      ? `✏️ 作業履歴・日誌を修正しました（${selectedFields.length} 筆）`
-      : `🎉 1アクションで ${selectedFields.length} 筆のカルテ＆営農日誌を端末保存しました！`,
-    `対象: ${selectedFields.map(f => f.name).join('・')} (計${totalArea}a) ／ 日誌タイムライン・A4帳票へ即時反映されました。`
-  );
 }
 
 // =========================================================================
@@ -1889,7 +1906,83 @@ function renderReportsTab() {
     (fertRowsHtml || `<tr><td colspan="10" class="border border-slate-400 p-3 text-center text-slate-500">該当する施肥履歴はありません</td></tr>`) +
     fertSummaryRowHtml;
 
-  // 防除履歴簿（混用時は剤ごと・有効成分表示対応）
+  // 防除履歴簿（混用時は剤ごと・有効成分表示＆散布時点の累計回数・PHI安全基準を動的判定）
+  const chronologicalPestLogs = workLogs
+    .map((l, idx) => ({ l, idx }))
+    .filter(x => x.l.type === 'pesticide')
+    .sort((a, b) => dateKey_(a.l.date).localeCompare(dateKey_(b.l.date)) || (b.idx - a.idx))
+    .map(x => x.l);
+
+  // 各圃場のベースライン回数を初期値として、各防除ログ時点での累積回数スナップショットを計算
+  const fieldRunningProdCnt = {};
+  const fieldRunningIngCnt = {};
+  fieldsData.forEach(f => {
+    const basePest = (f.baseline && f.baseline.pestCount) ? { ...f.baseline.pestCount } : {};
+    fieldRunningProdCnt[f.id] = basePest;
+    const baseIng = {};
+    Object.entries(basePest).forEach(([pid, cnt]) => {
+      if (!cnt || cnt <= 0) return;
+      const pObj = pesticides[pid];
+      const ing = (pObj && pObj.activeIngredient) ? pObj.activeIngredient : pid;
+      baseIng[ing] = (baseIng[ing] || 0) + cnt;
+    });
+    fieldRunningIngCnt[f.id] = baseIng;
+  });
+
+  const logSafetySnapshotMap = {};
+  chronologicalPestLogs.forEach(l => {
+    const pids = getLogPesticideIds(l);
+    const fids = l.fieldIds || [];
+    const perPidSnapshot = {};
+    const logDateMs = new Date(String(l.date || '').replace(/\//g, '-')).setHours(0, 0, 0, 0);
+
+    pids.forEach(pid => {
+      const pObj = pesticides[pid];
+      const ing = (pObj && pObj.activeIngredient) ? pObj.activeIngredient : pid;
+      let maxProdAtLog = 0;
+      let maxIngAtLog = 0;
+      let phiViolated = false;
+
+      fids.forEach(fid => {
+        if (!fieldRunningProdCnt[fid]) fieldRunningProdCnt[fid] = {};
+        if (!fieldRunningIngCnt[fid]) fieldRunningIngCnt[fid] = {};
+        fieldRunningProdCnt[fid][pid] = (fieldRunningProdCnt[fid][pid] || 0) + 1;
+        fieldRunningIngCnt[fid][ing] = (fieldRunningIngCnt[fid][ing] || 0) + 1;
+        maxProdAtLog = Math.max(maxProdAtLog, fieldRunningProdCnt[fid][pid]);
+        maxIngAtLog = Math.max(maxIngAtLog, fieldRunningIngCnt[fid][ing]);
+
+        const fieldObj = fieldsData.find(item => item.id === fid);
+        if (pObj && fieldObj && fieldObj.harvest) {
+          const harvMs = new Date(String(fieldObj.harvest).replace(/\//g, '-')).setHours(0, 0, 0, 0);
+          if (!isNaN(logDateMs) && !isNaN(harvMs)) {
+            const diffDays = Math.floor((harvMs - logDateMs) / (1000 * 60 * 60 * 24));
+            if (diffDays < pObj.phiDays) phiViolated = true;
+          }
+        }
+      });
+
+      const overUse = pObj ? (maxProdAtLog > pObj.maxUse || maxIngAtLog > pObj.maxUse) : false;
+      let status = 'ok';
+      if (l.safetyOk === false || overUse || phiViolated) {
+        status = 'ng';
+      } else if (!pObj && l.safetyOk !== true) {
+        status = 'unverified';
+      }
+      perPidSnapshot[pid] = { maxProdAtLog, maxIngAtLog, overUse, phiViolated, status };
+    });
+    logSafetySnapshotMap[l.id] = perPidSnapshot;
+  });
+
+  const renderVerdictCell_ = (status) => {
+    if (status === 'ng') {
+      return `<td class="border border-slate-400 p-2 text-center font-bold text-red-600">⚠️ 要確認（基準超過）</td>`;
+    }
+    if (status === 'unverified') {
+      return `<td class="border border-slate-400 p-2 text-center font-bold text-amber-600">未判定（移行履歴）</td>`;
+    }
+    return `<td class="border border-slate-400 p-2 text-center font-bold text-emerald-700">適（基準内）</td>`;
+  };
+
   const pestRows = [];
   pestLogs.forEach(l => {
     const matchedFieldsInLog = l.fieldIds
@@ -1902,17 +1995,19 @@ function renderReportsTab() {
     const rawChemMl = parseFloat(String(l.chemAmount || '0').replace(/,/g, '')) || 0;
     const allocChemMl = Math.round(rawChemMl * areaRatio);
     const fNames = escapeHtml(matchedFieldsInLog.map(f => f.name).join('、'));
+    const snapMap = logSafetySnapshotMap[l.id] || {};
 
     const pids = getLogPesticideIds(l);
     if (pids.length > 1) {
       pids.forEach((pid, idx) => {
         const pObj = pesticides[pid];
+        const snap = snapMap[pid] || { maxIngAtLog: 1, status: l.safetyOk === false ? 'ng' : (pObj ? 'ok' : 'unverified') };
         const pLabel = pObj
           ? `${pObj.name} (${pObj.regNo} / 成分:${pObj.activeIngredient || '-'}) [混用${idx + 1}]`
           : `${pid} [混用${idx + 1}]`;
-        const ingCnt = pObj && matchedFieldsInLog[0]?.ingredientCount?.[pObj.activeIngredient]
-          ? `成分計${matchedFieldsInLog[0].ingredientCount[pObj.activeIngredient]}回 / 上限${pObj.maxUse}回`
-          : l.useCountLabel;
+        const ingCnt = pObj
+          ? `成分${snap.maxIngAtLog}回目 / 上限${pObj.maxUse}回`
+          : (l.useCountLabel || '未設定');
         pestRows.push(`
           <tr>
             <td class="border border-slate-400 p-2">${escapeHtml(l.date)}</td>
@@ -1923,26 +2018,31 @@ function renderReportsTab() {
             <td class="border border-slate-400 p-2 text-right">${allocWaterL} L</td>
             <td class="border border-slate-400 p-2 text-right font-bold">${allocChemMl.toLocaleString()} mL</td>
             <td class="border border-slate-400 p-2 text-center">${escapeHtml(ingCnt)}</td>
-            <td class="border border-slate-400 p-2 text-center font-bold text-emerald-700">適（基準内）</td>
+            ${renderVerdictCell_(snap.status)}
           </tr>
         `);
       });
     } else {
-      const pObj = pids[0] ? pesticides[pids[0]] : null;
+      const pid = pids[0] || '';
+      const pObj = pid ? pesticides[pid] : null;
+      const snap = snapMap[pid] || { maxIngAtLog: 1, status: l.safetyOk === false ? 'ng' : ((pObj || l.safetyOk === true) ? 'ok' : 'unverified') };
       const pLabel = pObj && pObj.activeIngredient
         ? `${pObj.name} (${pObj.regNo} / 成分:${pObj.activeIngredient})`
-        : l.pestName;
+        : (l.pestName || l.materialSummary || '移行農薬');
+      const countLabel = pObj
+        ? `${snap.maxIngAtLog}回目 / 上限${pObj.maxUse}回`
+        : (l.useCountLabel || '未判定');
       pestRows.push(`
         <tr>
           <td class="border border-slate-400 p-2">${escapeHtml(l.date)}</td>
           <td class="border border-slate-400 p-2">${fNames}</td>
           <td class="border border-slate-400 p-2 text-right">${matchedArea} a</td>
           <td class="border border-slate-400 p-2 font-semibold">${escapeHtml(pLabel)}</td>
-          <td class="border border-slate-400 p-2 text-center">${escapeHtml(l.dilution)}</td>
+          <td class="border border-slate-400 p-2 text-center">${escapeHtml(l.dilution || '-')}</td>
           <td class="border border-slate-400 p-2 text-right">${allocWaterL} L</td>
           <td class="border border-slate-400 p-2 text-right font-bold">${allocChemMl.toLocaleString()} mL</td>
-          <td class="border border-slate-400 p-2 text-center">${escapeHtml(l.useCountLabel)}</td>
-          <td class="border border-slate-400 p-2 text-center font-bold text-emerald-700">適（基準内）</td>
+          <td class="border border-slate-400 p-2 text-center">${escapeHtml(countLabel)}</td>
+          ${renderVerdictCell_(snap.status)}
         </tr>
       `);
     }
@@ -2293,6 +2393,8 @@ function deleteMaterialMaster(type, id) {
 
 function saveGasUrl() {
   gasWebhookUrl = document.getElementById('gasWebhookUrl').value.trim();
+  const tokenEl = document.getElementById('gasSyncToken');
+  if (tokenEl) gasSyncToken = tokenEl.value.trim();
   saveStateToStorage();
 }
 
@@ -2302,52 +2404,70 @@ async function syncWithGasBackend() {
     return;
   }
 
+  saveGasUrl();
   const unsynced = workLogs.filter(l => !l.synced);
-  const url = document.getElementById('gasWebhookUrl').value.trim();
+  const url = gasWebhookUrl;
 
+  // URL未設定時は送信したことにしない（以前は全件を同期済にしていたため、後から送信されなくなっていた）
   if (!url) {
-    if (unsynced.length === 0) {
-      showToast('☁️ すべての作業日誌が同期済みです', '未送信の作業日誌はありません（GAS URLを設定すると実シートと連携できます）。');
-      return;
-    }
-    unsynced.forEach(l => { l.synced = true; });
-    saveStateToStorage();
-    refreshAllViews();
-    showToast(`☁️ クラウド同期シミュレート完了（${unsynced.length}件）`, 'GASウェブアプリURLを設定（タブ5）すると、実際のGoogleスプレッドシートへ直接POST送信＆自動按分されます。');
+    showToast(
+      '⚙️ GASウェブアプリURLが未設定です',
+      `未送信の作業日誌 ${unsynced.length} 件は端末内に保存されたままです。タブ5「他社データ移行・設定」でURLとトークンを設定してから同期してください。`
+    );
     return;
   }
 
+  let resJson = null;
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ fields: fieldsData, logs: unsynced })
+      body: JSON.stringify({ token: gasSyncToken, fields: fieldsData, logs: unsynced })
     });
-    let acceptedIds = unsynced.map(l => l.id);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
     try {
-      const resJson = await response.json();
-      if (resJson && resJson.status === 'error') {
-        throw new Error(resJson.message || 'GAS error');
-      }
-      if (resJson && Array.isArray(resJson.acceptedIds)) {
-        acceptedIds = resJson.acceptedIds;
-      }
-    } catch (_) {}
-    const acceptedSet = new Set(acceptedIds);
-    workLogs.forEach(l => {
-      if (acceptedSet.has(l.id)) l.synced = true;
-    });
-    saveStateToStorage();
-    refreshAllViews();
-    showToast(
-      unsynced.length > 0
-        ? `☁️ Googleスプレッドシートへ ${unsynced.length} 件を同期送信しました！`
-        : '☁️ 圃場マスタを同期確認しました（未送信の作業日誌は0件です）',
-      '重複防止（べき等）チェック付きで送信され、自動面積按分・JA帳票更新が実行されました。'
-    );
+      resJson = await response.json();
+    } catch (parseErr) {
+      // GASのログイン画面HTMLなどが返った場合（デプロイ設定ミス）
+      throw new Error('GASからの応答がJSONではありません（デプロイのアクセス権限設定を確認してください）');
+    }
   } catch (err) {
-    showToast('⚠️ 通信エラー（端末内に安全に保存されています）', '電波状況またはGAS URLを確認後、再度同期ボタンを押してください。');
+    showToast(
+      '⚠️ 同期できませんでした（データは端末内に安全に保存されています）',
+      `${err.message || err} ／ 電波状況・GAS URLを確認後、再度同期ボタンを押してください。`
+    );
+    return;
   }
+
+  if (!resJson || resJson.status !== 'ok') {
+    showToast(
+      '⚠️ スプレッドシート側でエラーが発生しました（未送信のまま保持しています）',
+      (resJson && resJson.message) ? String(resJson.message) : '不明なエラー応答です。'
+    );
+    return;
+  }
+
+  // GASが受理を明示したIDだけを同期済にする（acceptedIds が無い応答では何も同期済にしない）
+  const acceptedSet = new Set(Array.isArray(resJson.acceptedIds) ? resJson.acceptedIds : []);
+  let markedCount = 0;
+  workLogs.forEach(l => {
+    if (!l.synced && acceptedSet.has(l.id)) {
+      l.synced = true;
+      markedCount++;
+    }
+  });
+  saveStateToStorage();
+  refreshAllViews();
+
+  const remain = unsynced.length - markedCount;
+  showToast(
+    unsynced.length > 0
+      ? `☁️ Googleスプレッドシートへ ${markedCount} 件を同期しました${remain > 0 ? `（未受理 ${remain} 件は端末に保持）` : ''}`
+      : '☁️ 圃場マスタを同期確認しました（未送信の作業日誌は0件です）',
+    `新規 ${Number(resJson.syncedCount) || 0} 件 ／ 登録済みのため重複スキップ ${Number(resJson.skippedCount) || 0} 件。自動面積按分・JA帳票更新が実行されました。`
+  );
 }
 
 // =========================================================================

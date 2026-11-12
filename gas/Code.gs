@@ -693,6 +693,17 @@ function doPost(e) {
   const lock = LockService.getScriptLock();
   try {
     const payload = JSON.parse(e.postData.contents);
+
+    // 認証：スクリプトプロパティ SYNC_TOKEN と一致しない送信は拒否する（未設定時も拒否＝フェイルクローズ）
+    // 設定方法：Apps Scriptエディタ →「プロジェクトの設定」→「スクリプト プロパティ」に SYNC_TOKEN を追加
+    const expectedToken = PropertiesService.getScriptProperties().getProperty('SYNC_TOKEN');
+    if (!expectedToken) {
+      return jsonResponse_({ status: 'error', message: 'GAS側でスクリプトプロパティ SYNC_TOKEN が未設定です。設定後に再度同期してください。' });
+    }
+    if (!timingSafeEqual_(String(payload.token || ''), expectedToken)) {
+      return jsonResponse_({ status: 'error', message: '同期用トークンが一致しません。アプリの設定画面のトークンを確認してください。' });
+    }
+
     // 同時送信（複数スマホ）による二重登録を防ぐため排他ロック
     lock.waitLock(30000);
 
@@ -787,6 +798,19 @@ function doPost(e) {
 }
 
 // ヘルパー関数
+function jsonResponse_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// 文字列比較の所要時間から一致文字数を推測されないよう、長さに関係なく全文字を比較する
+function timingSafeEqual_(a, b) {
+  const len = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < len; i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
 
 /**
  * 「接頭辞＋2桁以上の連番」形式のIDを採番する（PWA側 generateNextId と同一仕様）

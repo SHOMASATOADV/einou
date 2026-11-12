@@ -126,7 +126,7 @@
           </div>
           <div class="flex flex-wrap gap-1.5">
             <button type="button" onclick="toggleInputGoogleMap()" id="btnToggleInputMap" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-sky-600 text-white hover:bg-sky-700 transition shadow-sm">
-              🗺️ Googleマップ航空写真で選択
+              🗺️ 航空写真マップで選択
             </button>
             <button type="button" onclick="detectGpsNearestFields()" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition shadow-sm">
               🛰️ 実GPSで周辺選択
@@ -146,7 +146,7 @@
         <div id="inputGoogleMapWrap" class="hidden mb-3 rounded-2xl overflow-hidden border-2 border-sky-500/50 bg-stone-900">
           <div class="flex items-center justify-between flex-wrap gap-2 px-3 py-2 bg-stone-950 text-white text-xs">
             <div class="font-bold flex items-center gap-1.5 flex-wrap">
-              <span>🛰️ Googleマップ航空写真 連動ピッカー</span>
+              <span>🛰️ 航空写真（国土地理院） 連動ピッカー</span>
               <span class="text-emerald-300 font-normal">（区画タップで選択 ／ 「✏️ 新規区画を囲んで追加」でその場で田んぼ登録）</span>
             </div>
             <div class="flex items-center gap-1.5 flex-wrap">
@@ -546,7 +546,7 @@
       <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div class="flex items-center gap-1.5">
           <button type="button" onclick="switchGisMapMode('svg')" id="gisModeBtn-svg" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 text-white">📊 進捗ブロック図（圏外対応）</button>
-          <button type="button" onclick="switchGisMapMode('google')" id="gisModeBtn-google" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">🛰️ Googleマップ航空写真（実座標）</button>
+          <button type="button" onclick="switchGisMapMode('google')" id="gisModeBtn-google" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">🛰️ 航空写真マップ（実座標）</button>
         </div>
         <div class="flex items-center gap-1.5 text-xs">
           <button type="button" onclick="panGoogleMapToGroup('gis', 'gps')" class="px-2.5 py-1 rounded-lg bg-[var(--secondary)] text-[var(--secondary-foreground)] font-semibold hover:opacity-80">📍 本場エリア</button>
@@ -558,7 +558,7 @@
       <div id="gisGoogleMapWrap" class="hidden mb-3 rounded-2xl overflow-hidden border-2 border-emerald-500/50 bg-stone-900">
         <div id="gisGoogleMapCanvas" class="w-full h-[420px] bg-stone-800"></div>
         <div class="flex items-center justify-between flex-wrap gap-2 px-4 py-2 bg-stone-950 text-white text-xs">
-          <span>🛰️ Google航空写真・ハイブリッド地図（圃場ピンまたはポリゴンをクリックすると右側にカルテを表示します）</span>
+          <span>🛰️ 航空写真マップ・出典：国土地理院（圃場ピンまたはポリゴンをクリックすると右側にカルテを表示します）</span>
           <button type="button" onclick="openFieldInGoogleMaps(currentInspectedFieldId)" class="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-700 text-white font-bold">↗ 選択圃場をGoogleマップで開く</button>
         </div>
       </div>
@@ -1364,6 +1364,9 @@
         </p>
         <label class="block text-xs font-bold mb-1">GAS ウェブアプリ URL（任意）</label>
         <input type="url" id="gasWebhookUrl" onchange="saveGasUrl()" placeholder="https://script.google.com/macros/s/XXXX.../exec" class="w-full px-3 py-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs mb-3">
+        <label class="block text-xs font-bold mb-1">同期用トークン（GASのスクリプトプロパティ <code class="px-1 rounded bg-[var(--secondary)]">SYNC_TOKEN</code> と同じ値）</label>
+        <input type="password" id="gasSyncToken" onchange="saveGasUrl()" autocomplete="off" placeholder="例: 英数字20文字以上のランダムな文字列" class="w-full px-3 py-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs mb-1">
+        <p class="text-[11px] text-[var(--muted-foreground)] mb-3">URLを知っている第三者による不正な書き込みを防ぐため、GAS側でトークンを照合します。トークンはJSONバックアップには含まれません。</p>
         <div class="flex gap-2">
           <button onclick="syncWithGasBackend()" class="flex-1 py-2.5 rounded-xl bg-sky-600 text-white font-bold text-xs hover:bg-sky-700 transition">
             ☁️ 今すぐスプレッドシートへ同期送信

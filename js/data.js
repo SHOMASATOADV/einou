@@ -146,6 +146,9 @@ let machines = {};
 let costSettings = { hourlyWageYen: 1500, ricePricePerTawaraYen: 18500 };
 let workLogs = [];
 let gasWebhookUrl = '';
+// GAS doPost 認証用の共有トークン（スクリプトプロパティ SYNC_TOKEN と一致させる）
+// ※ JSONバックアップには含めない（バックアップファイル共有時の漏えい防止）
+let gasSyncToken = '';
 
 // 現在のUI状態
 let selectedFieldIds = ['F01', 'F02', 'F03'];
@@ -508,6 +511,8 @@ function applyParsedState_(parsed) {
     if (l.memo === undefined) l.memo = defLog?.memo || '';
   });
   gasWebhookUrl = parsed.gasWebhookUrl || '';
+  // トークンは localStorage からの読込時のみ復元（JSONバックアップには含まれないため既存値を維持）
+  if (typeof parsed.gasSyncToken === 'string') gasSyncToken = parsed.gasSyncToken;
 }
 
 function loadStateFromStorage() {
@@ -530,7 +535,8 @@ function saveStateToStorage() {
       machines,
       costSettings,
       workLogs,
-      gasWebhookUrl
+      gasWebhookUrl,
+      gasSyncToken
     }));
   } catch (e) {}
   if (typeof updateSyncBadge === 'function') updateSyncBadge();
