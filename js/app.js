@@ -56,13 +56,14 @@ function initApp() {
     document.getElementById('workDateInput').value = todayIso;
   }
 
+  selectedFieldIds = fieldsData.length > 0 ? fieldsData.slice(0, 3).map(f => f.id) : [];
   renderSelectOptions();
   renderInputFieldGrid();
   selectWorkCat('施肥');
   recalculatePreview();
   renderDiaryTimeline();
   renderGisHeatmap();
-  inspectField('F01');
+  inspectField(fieldsData[0]?.id || '');
   renderResourcesTab();
   renderReportsTab();
   updateSyncBadge();
@@ -70,44 +71,50 @@ function initApp() {
 
 function renderSelectOptions() {
   const mSel = document.getElementById('machineSelect');
-  const curM = mSel.value || 'M01';
+  const curM = mSel.value;
   mSel.innerHTML = Object.values(machines).map(m => {
     const warn = (m.nextMaint - m.currentHour) <= 10 ? ' ⚠️点検近し' : '';
     return `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)} (現在 ${m.currentHour.toFixed(1)}h${warn})</option>`;
   }).join('') + `<option value="NONE">機械なし（手作業・見回り）</option>`;
-  mSel.value = curM;
+  mSel.value = machines[curM] ? curM : (Object.keys(machines)[0] || 'NONE');
 
   const fSel = document.getElementById('fertilizerSelect');
-  const curF = fSel.value || 'F01';
-  fSel.innerHTML = Object.values(fertilizers).map(f =>
-    `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)} (${f.unitKg}kg/袋 | N${f.n}-P${f.p}-K${f.k} | 残${f.stock}袋)</option>`
-  ).join('');
-  fSel.value = curF;
+  const curF = fSel.value;
+  const fertVals = Object.values(fertilizers);
+  fSel.innerHTML = fertVals.length > 0
+    ? fertVals.map(f =>
+      `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)} (${f.unitKg}kg/袋 | N${f.n}-P${f.p}-K${f.k} | 残${f.stock}袋)</option>`
+    ).join('')
+    : `<option value="">未登録（＋追加 または 資源タブから登録）</option>`;
+  fSel.value = fertilizers[curF] ? curF : (Object.keys(fertilizers)[0] || '');
 
   const pSel = document.getElementById('pesticideSelect');
-  const curP = pSel.value || 'P01';
-  pSel.innerHTML = Object.values(pesticides).map(p => {
-    const ing = p.activeIngredient ? `成分:${p.activeIngredient} / ` : '';
-    return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.regNo)} | ${escapeHtml(ing)}上限${p.maxUse}回・収穫前${p.phiDays}日)</option>`;
-  }).join('');
-  pSel.value = curP;
+  const curP = pSel.value;
+  const pestVals = Object.values(pesticides);
+  pSel.innerHTML = pestVals.length > 0
+    ? pestVals.map(p => {
+      const ing = p.activeIngredient ? `成分:${p.activeIngredient} / ` : '';
+      return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.regNo)} | ${escapeHtml(ing)}上限${p.maxUse}回・収穫前${p.phiDays}日)</option>`;
+    }).join('')
+    : `<option value="">未登録（＋追加 または 資源タブから登録）</option>`;
+  pSel.value = pesticides[curP] ? curP : (Object.keys(pesticides)[0] || '');
 
   const pMixSel = document.getElementById('pesticideMixSelect');
   if (pMixSel) {
     const curMix = pMixSel.value || 'NONE';
     pMixSel.innerHTML = `<option value="NONE">混用なし（1剤単独散布）</option>` +
-      Object.values(pesticides).map(p => {
+      pestVals.map(p => {
         const ing = p.activeIngredient ? `成分:${p.activeIngredient} / ` : '';
         return `<option value="${escapeHtml(p.id)}">＋混用: ${escapeHtml(p.name)} (${escapeHtml(ing)}上限${p.maxUse}回・収穫前${p.phiDays}日)</option>`;
       }).join('');
-    pMixSel.value = curMix;
+    pMixSel.value = pesticides[curMix] ? curMix : 'NONE';
   }
 }
 
 function getSelectedPesticideIdsFromUi_() {
-  const p1 = document.getElementById('pesticideSelect')?.value || 'P01';
+  const p1 = document.getElementById('pesticideSelect')?.value || '';
   const p2 = document.getElementById('pesticideMixSelect')?.value || 'NONE';
-  const ids = [p1];
+  const ids = p1 ? [p1] : [];
   if (p2 && p2 !== 'NONE' && p2 !== p1) ids.push(p2);
   return ids;
 }
@@ -903,8 +910,9 @@ function recalculatePreview() {
   document.getElementById('selectedTotalAreaLabel').textContent = totalArea;
   document.getElementById('selectedTotalTanLabel').textContent = (totalArea / 10).toFixed(1);
 
-  const fertId = document.getElementById('fertilizerSelect').value || 'F01';
-  const fert = fertilizers[fertId] || Object.values(fertilizers)[0];
+  const fertId = document.getElementById('fertilizerSelect').value;
+  const rawFert = fertilizers[fertId] || Object.values(fertilizers)[0];
+  const fert = rawFert || { unitKg: 20, n: 0, p: 0, k: 0, name: '未登録', stock: 0 };
   const totalKg = currentBags * fert.unitKg;
   const fertPer10a = totalArea > 0 ? (totalKg / (totalArea / 10)) : 0;
   const nTotal = totalKg * (fert.n / 100);
@@ -1021,13 +1029,16 @@ function recalculatePreview() {
   }
 
   if (currentWorkCat === '施肥') {
-    document.getElementById('previewStockSummary').textContent =
-      `${fert.name}: 現在庫 ${fert.stock}袋 → 登録後 ${Math.max(0, fert.stock - currentBags)}袋`;
+    document.getElementById('previewStockSummary').textContent = rawFert
+      ? `${fert.name}: 現在庫 ${fert.stock}袋 → 登録後 ${Math.max(0, fert.stock - currentBags)}袋`
+      : '肥料マスタ未登録（＋追加 または 資源タブから登録してください）';
   } else if (currentWorkCat === '防除') {
-    document.getElementById('previewStockSummary').textContent = selectedPests.map(p => {
-      const unitInfo = calcPesticideUnitQty(p, totalArea, totalChemMl);
-      return `${p.name}: 残${p.stock}${unitInfo.unitLabel} → ${Math.max(0, p.stock - unitInfo.qty)}${unitInfo.unitLabel}`;
-    }).join(' ／ ');
+    document.getElementById('previewStockSummary').textContent = selectedPests.length > 0
+      ? selectedPests.map(p => {
+        const unitInfo = calcPesticideUnitQty(p, totalArea, totalChemMl);
+        return `${p.name}: 残${p.stock}${unitInfo.unitLabel} → ${Math.max(0, p.stock - unitInfo.qty)}${unitInfo.unitLabel}`;
+      }).join(' ／ ')
+      : '農薬マスタ未登録（＋追加 または 資源タブから登録してください）';
   } else if (currentWorkCat === '収穫') {
     const grade = document.getElementById('harvestGradeSelect')?.value || '1等';
     const moist = document.getElementById('harvestMoistureInput')?.value || '14.8';
@@ -1530,6 +1541,18 @@ function inspectField(fieldId) {
   renderGisHeatmap();
 
   const f = fieldsData.find(item => item.id === fieldId) || fieldsData[0];
+  if (!f) {
+    if (document.getElementById('karteTitle')) {
+      document.getElementById('karteTitle').textContent = '圃場未登録（新規追加またはデータ移行から登録してください）';
+    }
+    if (document.getElementById('karteArea')) document.getElementById('karteArea').textContent = '-';
+    if (document.getElementById('karteCrop')) document.getElementById('karteCrop').textContent = '-';
+    if (document.getElementById('karteHarvest')) document.getElementById('karteHarvest').textContent = '-';
+    if (document.getElementById('karteHistoryList')) {
+      document.getElementById('karteHistoryList').innerHTML = `<div class="p-4 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs text-[var(--muted-foreground)]">圃場がまだ登録されていません。</div>`;
+    }
+    return;
+  }
   document.getElementById('karteTitle').textContent = `${f.name} (${f.lot})`;
   document.getElementById('karteArea').textContent = `${f.area} a (${(f.area / 10).toFixed(1)} 反)`;
   document.getElementById('karteCrop').textContent = f.crop;

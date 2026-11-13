@@ -1,4 +1,0 @@
-work_log_id,work_date,work_category,worker_name,selected_field_ids,total_area_a,total_duration_hr,machine_id,material_id,input_qty_bags_or_bottles,total_weight_kg,dilution_rate,water_volume_l,calc_n_per10a_kg,calc_p_per10a_kg,calc_k_per10a_kg,notes
-WL-20261028-01,2026-10-28,草刈り,佐藤 健一,"F01,F02,F03,F07",122,3.0,M02,,0,0,0,0,0,0,0,畦畔・法面草刈り一括実施
-WL-20261101-01,2026-11-01,施肥,佐藤 健一,"F01,F02,F03",100,2.0,M01,F01,10,200,0,0,2.80,2.80,2.80,基肥一括散布（オール14・10袋）
-WL-20261103-01,2026-11-03,防除,高橋 誠,"F01,F02,F03",100,1.5,M03,P01,2,1.0,8,8.0,0,0,0,ドローン防除1回目（アミスター8倍）

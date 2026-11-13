@@ -1,5 +1,0 @@
-machine_id,machine_name,category,initial_hour_meter,current_hour_meter,next_maint_hour,maint_interval_hr,status
-M01,ヤンマー トラクター YT357,トラクター,120.0,248.0,300.0,100.0,正常
-M02,クボタ 乗用草刈機 RM983,乗用モア,30.0,96.5,100.0,50.0,点検近し
-M03,農業用ドローン DJI Agras T30,ドローン,0.0,42.0,60.0,30.0,正常
-M04,クボタ 田植機 NW8S,田植機,50.0,115.0,150.0,50.0,正常

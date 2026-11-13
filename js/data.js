@@ -6,110 +6,17 @@
 
 const STORAGE_KEY = 'rakuraku_einou_next_pwa_state_v1';
 
-// 初期デフォルトデータ定義
+// 初期デフォルトデータ定義（空の初期状態）
 const DEFAULT_STATE = {
-  fieldsData: [
-    { id: 'F01', name: '① 本場1号', lot: '大字下新田 102-1', group: 'gps', area: 30, crop: 'コシヒカリ (BL)', headingDate: '2026/08/08', targetTempC: 1000, dailyMeanTempC: 25.5, harvest: '2026/09/20', stage: '施肥済', lat: 37.9161, lng: 139.0364, doneCats: ['耕起', '草刈り', '施肥'], nPer10a: 2.8, pPer10a: 2.8, kPer10a: 2.8, pestCount: { P01: 1, P02: 1, P03: 2 }, alerts: [] },
-    { id: 'F02', name: '② 本場2号', lot: '大字下新田 102-2', group: 'gps', area: 20, crop: 'コシヒカリ (BL)', headingDate: '2026/08/08', targetTempC: 1000, dailyMeanTempC: 25.5, harvest: '2026/09/20', stage: '施肥済', lat: 37.9163, lng: 139.0368, doneCats: ['耕起', '草刈り', '施肥'], nPer10a: 2.8, pPer10a: 2.8, kPer10a: 2.8, pestCount: { P01: 1, P02: 0, P03: 1 }, alerts: [] },
-    { id: 'F03', name: '③ 本場3号・大町', lot: '大字下新田 105', group: 'gps', area: 50, crop: 'コシヒカリ (BL)', headingDate: '2026/08/08', targetTempC: 1000, dailyMeanTempC: 25.5, harvest: '2026/09/20', stage: '施肥済', lat: 37.9158, lng: 139.0365, doneCats: ['耕起', '草刈り', '施肥'], nPer10a: 2.8, pPer10a: 2.8, kPer10a: 2.8, pestCount: { P01: 1, P02: 1, P03: 2 }, alerts: [] },
-    { id: 'F04', name: '④ 川向4号', lot: '大字川向 44-1', group: 'river', area: 35, crop: 'つきあかり', headingDate: '2026/07/30', targetTempC: 950, dailyMeanTempC: 25.8, harvest: '2026/09/10', stage: '耕起済', lat: 37.9145, lng: 139.0355, doneCats: ['耕起', '草刈り'], nPer10a: 1.4, pPer10a: 1.4, kPer10a: 1.4, pestCount: { P01: 0, P02: 0, P03: 0 }, alerts: [] },
-    { id: 'F05', name: '⑤ 上山田A(飛び地)', lot: '上山田字沢 88-1', group: 'yama', area: 15, crop: 'コシヒカリ (BL)', headingDate: '2026/08/14', targetTempC: 1000, dailyMeanTempC: 23.2, harvest: '2026/09/28', stage: '未着手', lat: 37.9210, lng: 139.0480, doneCats: [], nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: { P01: 0, P02: 0, P03: 0 }, alerts: [{ id: 'AL-INIT-1', text: '🐗 獣害（イノシシ畦畔掘り）', tag: '🐗 獣害（イノシシ畦畔掘り）', date: '2026/08/03' }] },
-    { id: 'F06', name: '⑥ 上山田B(飛び地)', lot: '上山田字沢 89-3', group: 'yama', area: 18, crop: 'コシヒカリ (BL)', headingDate: '2026/08/14', targetTempC: 1000, dailyMeanTempC: 23.2, harvest: '2026/09/28', stage: '未着手', lat: 37.9215, lng: 139.0488, doneCats: [], nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: { P01: 0, P02: 0, P03: 0 }, alerts: [] },
-    { id: 'F07', name: '⑦ 上山田棚田C', lot: '上山田字峯 12-1', group: 'yama', area: 22, crop: 'コシヒカリ (BL)', headingDate: '2026/08/14', targetTempC: 1000, dailyMeanTempC: 23.2, harvest: '2026/09/28', stage: '草刈り済', lat: 37.9202, lng: 139.0475, doneCats: ['草刈り'], nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: { P01: 0, P02: 0, P03: 0 }, alerts: [{ id: 'AL-INIT-2', text: '💧 水口・畦畔水漏れ確認', tag: '💧 水口・畦畔水漏れ確認', date: '2026/08/04' }] }
-  ],
-  fertilizers: {
-    F01: { id: 'F01', name: 'くみあい苦土入り複合オール14', unitKg: 20, n: 14, p: 14, k: 14, stock: 45, minStock: 15, priceYen: 2450 },
-    F02: { id: 'F02', name: '水稲一発基肥コートL80', unitKg: 20, n: 24, p: 10, k: 12, stock: 30, minStock: 10, priceYen: 3800 },
-    F03: { id: 'F03', name: 'NK化成2号（穂肥用）', unitKg: 20, n: 17, p: 0, k: 17, stock: 12, minStock: 15, priceYen: 2600 }
-  },
-  pesticides: {
-    P01: { id: 'P01', name: 'アミスターフロアブル', regNo: '第20142号', activeIngredient: 'アゾキシストロビン', maxUse: 2, phiDays: 14, stock: 18, unit: '本(500mL)', priceYen: 3400 },
-    P02: { id: 'P02', name: 'スタークル液剤10', regNo: '第21993号', activeIngredient: 'ジノテフラン', maxUse: 3, phiDays: 7, stock: 24, unit: '本(500mL)', priceYen: 2900 },
-    P03: { id: 'P03', name: 'ビームゾル', regNo: '第14201号', activeIngredient: 'トリシクラゾール', maxUse: 2, phiDays: 21, stock: 6, unit: '本(500mL)', priceYen: 2800 },
-    P04: { id: 'P04', name: 'スタークル粒剤（同一成分別剤）', regNo: '第21992号', activeIngredient: 'ジノテフラン', maxUse: 3, phiDays: 14, stock: 15, unit: '袋(3kg)', priceYen: 2500 }
-  },
-  machines: {
-    M01: { id: 'M01', name: 'ヤンマー トラクター YT357', cat: 'トラクター', currentHour: 248.0, nextMaint: 300.0, interval: 100.0, hourlyCostYen: 2800 },
-    M02: { id: 'M02', name: 'クボタ 乗用草刈機 RM983', cat: '乗用モア', currentHour: 96.5, nextMaint: 100.0, interval: 50.0, hourlyCostYen: 1500 },
-    M03: { id: 'M03', name: '農業用ドローン DJI Agras T30', cat: 'ドローン', currentHour: 42.0, nextMaint: 60.0, interval: 30.0, hourlyCostYen: 3500 },
-    M04: { id: 'M04', name: 'クボタ 田植機 NW8S', cat: '田植機', currentHour: 115.0, nextMaint: 150.0, interval: 50.0, hourlyCostYen: 2400 }
-  },
+  fieldsData: [],
+  fertilizers: {},
+  pesticides: {},
+  machines: {},
   costSettings: {
     hourlyWageYen: 1500,
     ricePricePerTawaraYen: 18500
   },
-  workLogs: [
-    {
-      id: 'WL-20260425-01',
-      date: '2026/04/25',
-      cat: '草刈り',
-      worker: '佐藤 健一',
-      weather: '☀️ 晴れ',
-      tempC: 19,
-      memo: '本場団地および上山田棚田Cの畦畔・法面草刈りを実施。棚田C北側の水口周辺に軽微な水漏れを確認したため次回補修予定。',
-      fieldIds: ['F01', 'F02', 'F03', 'F07'],
-      totalArea: 122,
-      duration: 3.0,
-      machineId: 'M02',
-      machineName: 'クボタ 乗用草刈機 RM983',
-      materialSummary: '畦畔・法面草刈り一括実施',
-      type: 'general',
-      synced: true
-    },
-    {
-      id: 'WL-20260501-01',
-      date: '2026/05/01',
-      cat: '施肥',
-      worker: '佐藤 健一',
-      weather: '⛅ 曇り',
-      tempC: 21,
-      memo: '本場1〜3号（計100a）へ基肥散布。風が弱くブロードキャスタでの均一散布が良好。明日は代かき予定。',
-      fieldIds: ['F01', 'F02', 'F03'],
-      totalArea: 100,
-      duration: 2.0,
-      machineId: 'M01',
-      machineName: 'ヤンマー トラクター YT357',
-      materialId: 'F01',
-      inputQty: 10,
-      materialSummary: 'くみあい苦土入り複合オール14 (10袋 / 200kg)',
-      type: 'fertilizer',
-      fertName: 'くみあい苦土入り複合オール14',
-      npkLabel: '14-14-14',
-      totalKg: 200,
-      per10aKg: 20.0,
-      n10a: 2.80,
-      p10a: 2.80,
-      k10a: 2.80,
-      synced: true
-    },
-    {
-      id: 'WL-20260801-01',
-      date: '2026/08/01',
-      cat: '防除',
-      worker: '高橋 誠（オペレーター）',
-      weather: '☀️ 晴れ',
-      tempC: 28,
-      memo: '早朝5:30よりドローンT30で穂いもち予防散布。風速1.5m/s以下でドリフトなし。出穂は8/8頃の見込み。',
-      fieldIds: ['F01', 'F02', 'F03'],
-      totalArea: 100,
-      duration: 1.5,
-      machineId: 'M03',
-      machineName: '農業用ドローン DJI Agras T30',
-      materialId: 'P01',
-      materialIds: ['P01'],
-      inputQty: 2,
-      dilutionRate: 8,
-      materialSummary: 'アミスターフロアブル (8倍 / 総液量8L)',
-      type: 'pesticide',
-      pestName: 'アミスターフロアブル (第20142号)',
-      dilution: '8倍 (ドローン)',
-      waterL: 8.0,
-      chemAmount: '1,000 mL',
-      useCountLabel: '1回目 / 上限2回',
-      safetyOk: true,
-      synced: true
-    }
-  ],
+  workLogs: [],
   gasWebhookUrl: ''
 };
 
@@ -151,14 +58,14 @@ let gasWebhookUrl = '';
 let gasSyncToken = '';
 
 // 現在のUI状態
-let selectedFieldIds = ['F01', 'F02', 'F03'];
+let selectedFieldIds = [];
 let currentWorkCat = '施肥';
 let currentDuration = 2.0;
 let currentBags = 10;
 let currentHarvestBags = 180;
 let isOfflineMode = false;
 let currentHeatmapLayer = 'all';
-let currentInspectedFieldId = 'F01';
+let currentInspectedFieldId = '';
 let editingLogId = null;
 let pendingMigrationItems = [];
 let pendingMigrationMode = 'fields';
