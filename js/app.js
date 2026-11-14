@@ -41,6 +41,9 @@ function initApp() {
   if (document.getElementById('simRicePriceInput') && typeof costSettings === 'object') {
     document.getElementById('simRicePriceInput').value = costSettings.ricePricePerTawaraYen || 18500;
   }
+  if (document.getElementById('simWastePriceInput') && typeof costSettings === 'object') {
+    document.getElementById('simWastePriceInput').value = costSettings.wasteRicePricePerKgYen ?? 50;
+  }
   if (document.getElementById('simHourlyWageInput') && typeof costSettings === 'object') {
     document.getElementById('simHourlyWageInput').value = costSettings.hourlyWageYen || 1500;
   }
@@ -94,7 +97,8 @@ function renderSelectOptions() {
   pSel.innerHTML = pestVals.length > 0
     ? pestVals.map(p => {
       const ing = p.activeIngredient ? `成分:${p.activeIngredient} / ` : '';
-      return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.regNo)} | ${escapeHtml(ing)}上限${p.maxUse}回・収穫前${p.phiDays}日)</option>`;
+      const st = formatPesticideStock_(p);
+      return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${escapeHtml(p.regNo)} | ${escapeHtml(ing)}上限${p.maxUse}回・PHI${p.phiDays}日 | 残${st.totalLabel})</option>`;
     }).join('')
     : `<option value="">未登録（＋追加 または 資源タブから登録）</option>`;
   pSel.value = pesticides[curP] ? curP : (Object.keys(pesticides)[0] || '');
@@ -791,13 +795,36 @@ function selectWorkCat(cat) {
   } else if (cat === '防除') {
     pestPanel.classList.remove('hidden');
     secTitle.textContent = '使用農薬（混用対応）・希釈逆算 ＆ 有効成分別安全基準チェック';
+    toggleWeatherDetailPanel(true);
   } else if (cat === '収穫') {
     if (harvPanel) harvPanel.classList.remove('hidden');
-    secTitle.textContent = '収穫・刈取記録（袋数を入れるだけで10a反収［俵/kg］と圃場別収量を自動按分）';
+    secTitle.textContent = '収穫・刈取記録（袋数・屑米を入れるだけで10a反収［俵/kg］と圃場別収量を自動按分）';
   } else {
     nonePanel.classList.remove('hidden');
     secTitle.textContent = `使用資材（${cat}：資材消費なし）`;
   }
+  recalculatePreview();
+}
+
+function toggleWeatherDetailPanel(forceOpen) {
+  const panel = document.getElementById('weatherDetailPanel');
+  const btn = document.getElementById('weatherDetailToggleBtn');
+  if (!panel) return;
+  const open = forceOpen !== undefined ? forceOpen : panel.classList.contains('hidden');
+  if (open) {
+    panel.classList.remove('hidden');
+    if (btn) btn.textContent = '🌦️ 詳細気象（降水量・風向・風速）▲';
+  } else {
+    panel.classList.add('hidden');
+    if (btn) btn.textContent = '🌦️ 詳細気象（降水量・風向・風速）▼';
+  }
+}
+
+function adjustWasteRiceKg(delta) {
+  const el = document.getElementById('harvestWasteKgInput');
+  if (!el) return;
+  const cur = Math.max(0, Number(el.value) || 0);
+  el.value = Math.max(0, cur + delta);
   recalculatePreview();
 }
 
@@ -931,14 +958,22 @@ function recalculatePreview() {
   document.getElementById('calcPTotal').textContent = pTotal.toFixed(1);
   document.getElementById('calcKTotal').textContent = kTotal.toFixed(1);
 
-  // 収穫パネル計算
+  // 収穫パネル計算（精玄米＋屑米）
   const harvTotalKg = currentHarvestBags * 30;
+  const wasteKg = Math.max(0, Number(document.getElementById('harvestWasteKgInput')?.value) || 0);
+  const wasteRatePct = (harvTotalKg + wasteKg) > 0 ? (wasteKg / (harvTotalKg + wasteKg)) * 100 : 0;
   const yieldKg10a = totalArea > 0 ? (harvTotalKg / (totalArea / 10)) : 0;
   const yieldTawara10a = yieldKg10a / 60;
   if (document.getElementById('calcHarvestTotalKg')) {
     document.getElementById('calcHarvestTotalKg').textContent = harvTotalKg.toLocaleString('ja-JP');
     document.getElementById('calcYieldKg10a').textContent = Math.round(yieldKg10a).toLocaleString('ja-JP');
     document.getElementById('calcYieldTawara10a').textContent = yieldTawara10a.toFixed(1);
+    if (document.getElementById('calcHarvestWasteKg')) {
+      document.getElementById('calcHarvestWasteKg').textContent = wasteKg.toLocaleString('ja-JP');
+    }
+    if (document.getElementById('calcHarvestWasteRate')) {
+      document.getElementById('calcHarvestWasteRate').textContent = wasteRatePct.toFixed(1);
+    }
   }
 
   // 防除（混用散布＆有効成分チェック対応）
@@ -956,17 +991,38 @@ function recalculatePreview() {
 
   const workDateStr = document.getElementById('workDateInput').value || '2026-08-05';
   const safetyResult = evaluatePesticideSafety_(selectedFields, selectedPestIds, workDateStr);
+  const weatherVal = document.getElementById('workWeatherSelect')?.value || '☀️ 晴れ';
+  const tempVal = document.getElementById('workTempInput')?.value || '25';
+  const rainfallVal = Math.max(0, Number(document.getElementById('workRainfallInput')?.value) || 0);
+  const windDirVal = document.getElementById('workWindDirSelect')?.value || '静穏';
+  const windSpeedVal = Math.max(0, Number(document.getElementById('workWindSpeedInput')?.value) || 0);
+
+  const weatherWarnings = [];
+  if (windSpeedVal >= 5.0 || weatherVal.includes('強風')) {
+    weatherWarnings.push(`🌬️ <strong>強風ドリフト警戒（風速 ${windSpeedVal}m/s・${escapeHtml(windDirVal)}）</strong>：農薬飛散リスクが高いため散布中止・時間帯変更を推奨します。`);
+  } else if (windSpeedVal >= 3.0) {
+    weatherWarnings.push(`⚠️ <strong>風速注意（${windSpeedVal}m/s・${escapeHtml(windDirVal)}）</strong>：隣接圃場へのドリフトに注意して散布してください。`);
+  }
+  if (rainfallVal > 0 || weatherVal.includes('雨')) {
+    weatherWarnings.push(`🌧️ <strong>降雨・流亡注意（降水量 ${rainfallVal}mm）</strong>：薬液の流亡・効果低下のおそれがあります。`);
+  }
 
   const alertBox = document.getElementById('safetyAlertBox');
   if (!safetyResult.ok) {
     alertBox.className = 'p-3 rounded-xl border border-red-500/50 bg-red-500/15 text-xs font-bold text-red-600 space-y-1';
-    alertBox.innerHTML = safetyResult.allMessages.map(m => `<div>${m}</div>`).join('');
+    alertBox.innerHTML = [...safetyResult.allMessages, ...weatherWarnings].map(m => `<div>${m}</div>`).join('');
+  } else if (weatherWarnings.length > 0) {
+    const summaryLabels = selectedPests.map(p =>
+      `${escapeHtml(p.name)}［成分:${escapeHtml(p.activeIngredient || '-')} 上限${p.maxUse}回・収穫前${p.phiDays}日］`
+    ).join(' ＋ ');
+    alertBox.className = 'p-3 rounded-xl border border-amber-500/50 bg-amber-500/15 text-xs font-semibold text-amber-800 space-y-1';
+    alertBox.innerHTML = `<div>✅ 農薬・有効成分 安全基準OK（${summaryLabels}）</div>` + weatherWarnings.map(m => `<div>${m}</div>`).join('');
   } else {
     const summaryLabels = selectedPests.map(p =>
       `${escapeHtml(p.name)}［成分:${escapeHtml(p.activeIngredient || '-')} 上限${p.maxUse}回・収穫前${p.phiDays}日］`
     ).join(' ＋ ');
     alertBox.className = 'p-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-xs font-semibold text-emerald-600';
-    alertBox.innerHTML = `✅ 農薬・有効成分 安全基準チェックOK：選択された全 ${selectedFields.length} 圃場で ${summaryLabels} の総使用回数上限および収穫前日数を満たしています。`;
+    alertBox.innerHTML = `✅ 農薬・有効成分・気象条件OK（風速 ${windSpeedVal}m/s / 降水 ${rainfallVal}mm）：選択された全 ${selectedFields.length} 圃場で ${summaryLabels} の基準を満たしています。`;
   }
 
   const allocBody = document.getElementById('allocationPreviewBody');
@@ -996,7 +1052,9 @@ function recalculatePreview() {
       rightCell = `${fWater.toFixed(1)}L <span class="text-sky-600 font-semibold">(${Math.round(fChem)}mL${mixSuffix})</span>`;
     } else if (currentWorkCat === '収穫') {
       const fHarvKg = Math.round(harvTotalKg * ratio);
-      rightCell = `${fHarvKg.toLocaleString()}kg <span class="text-amber-600 font-semibold">(${yieldTawara10a.toFixed(1)}俵/10a)</span>`;
+      const fWasteKg = Math.round(wasteKg * ratio);
+      const wasteStr = wasteKg > 0 ? ` <span class="text-slate-500">+ 屑${fWasteKg}kg</span>` : '';
+      rightCell = `${fHarvKg.toLocaleString()}kg${wasteStr} <span class="text-amber-600 font-semibold">(${yieldTawara10a.toFixed(1)}俵/10a)</span>`;
     }
 
     return `
@@ -1011,12 +1069,17 @@ function recalculatePreview() {
   }).join('');
 
   const workerName = document.getElementById('workerNameInput').value || '佐藤 健一';
-  const weatherVal = document.getElementById('workWeatherSelect')?.value || '☀️ 晴れ';
-  const tempVal = document.getElementById('workTempInput')?.value || '25';
   const memoVal = (document.getElementById('workDiaryMemoInput')?.value || '').trim();
   const memoPreview = memoVal ? ` ／ 📔メモ: ${memoVal}` : '';
+  const weatherSummary = formatWeatherSummary_({
+    weather: weatherVal,
+    tempC: tempVal,
+    rainfallMm: rainfallVal,
+    windDir: windDirVal,
+    windSpeedMs: windSpeedVal
+  });
   document.getElementById('previewDiarySummary').textContent =
-    `天候: ${weatherVal}(${tempVal}℃) / 作業者: ${workerName} / 分類: ${currentWorkCat} / 合計: ${currentDuration.toFixed(1)}h (${selectedFields.length}筆へ按分)${memoPreview}`;
+    `天候: ${weatherSummary} / 作業者: ${workerName} / 分類: ${currentWorkCat} / 合計: ${currentDuration.toFixed(1)}h (${selectedFields.length}筆へ按分)${memoPreview}`;
 
   const machId = document.getElementById('machineSelect').value;
   if (machId !== 'NONE' && machines[machId]) {
@@ -1036,14 +1099,22 @@ function recalculatePreview() {
     document.getElementById('previewStockSummary').textContent = selectedPests.length > 0
       ? selectedPests.map(p => {
         const unitInfo = calcPesticideUnitQty(p, totalArea, totalChemMl);
-        return `${p.name}: 残${p.stock}${unitInfo.unitLabel} → ${Math.max(0, p.stock - unitInfo.qty)}${unitInfo.unitLabel}`;
+        if (unitInfo.isLiquid) {
+          const curMl = Math.round(Number(p.stockMl) || 0);
+          const nextMl = Math.max(0, curMl - unitInfo.neededMl);
+          return `${p.name}: 残${curMl.toLocaleString()}mL → ${nextMl.toLocaleString()}mL (-${unitInfo.neededMl.toLocaleString()}mL)`;
+        }
+        const curKg = Math.round((Number(p.stockKg) || 0) * 10) / 10;
+        const nextKg = Math.max(0, Math.round((curKg - unitInfo.neededKg) * 10) / 10);
+        return `${p.name}: 残${curKg}kg → ${nextKg}kg (-${unitInfo.neededKg}kg)`;
       }).join(' ／ ')
       : '農薬マスタ未登録（＋追加 または 資源タブから登録してください）';
   } else if (currentWorkCat === '収穫') {
     const grade = document.getElementById('harvestGradeSelect')?.value || '1等';
     const moist = document.getElementById('harvestMoistureInput')?.value || '14.8';
+    const wasteNote = wasteKg > 0 ? ` / 屑米${wasteKg}kg(${wasteRatePct.toFixed(1)}%)` : '';
     document.getElementById('previewStockSummary').textContent =
-      `収穫玄米: ${currentHarvestBags}袋 (${harvTotalKg}kg) / 水分${moist}% / ${grade} (${yieldTawara10a.toFixed(1)}俵/10a)`;
+      `収穫玄米: ${currentHarvestBags}袋 (${harvTotalKg}kg)${wasteNote} / 水分${moist}% / ${grade} (${yieldTawara10a.toFixed(1)}俵/10a)`;
   } else {
     document.getElementById('previewStockSummary').textContent = '資材消費なし（在庫変動なし）';
   }
@@ -1063,12 +1134,25 @@ function applyLogResourceEffects_(log, sign) {
   } else if (log.type === 'pesticide') {
     const pids = getLogPesticideIds(log);
     pids.forEach(pid => {
-      if (!pesticides[pid]) return;
+      const pObj = pesticides[pid];
+      if (!pObj) return;
+      ensurePesticideInventoryFields_(pObj);
+      const usedMlMap = log.usedMlByMap || {};
+      const usedKgMap = log.usedKgByMap || {};
       const deductedMap = log.stockDeductedByMap || {};
-      const qty = deductedMap[pid] !== undefined
-        ? Number(deductedMap[pid])
-        : (log.stockDeducted !== undefined ? Number(log.stockDeducted) : (Number(log.inputQty) || 0));
-      pesticides[pid].stock = Math.max(0, pesticides[pid].stock - sign * qty);
+
+      if (pObj.formulation === 'granule') {
+        const usedKg = usedKgMap[pid] !== undefined
+          ? Number(usedKgMap[pid])
+          : ((deductedMap[pid] !== undefined ? Number(deductedMap[pid]) : (Number(log.stockDeducted ?? log.inputQty) || 0)) * pObj.unitSizeKg);
+        pObj.stockKg = Math.max(0, Math.round((pObj.stockKg - sign * usedKg) * 10) / 10);
+      } else {
+        const usedMl = usedMlMap[pid] !== undefined
+          ? Number(usedMlMap[pid])
+          : ((deductedMap[pid] !== undefined ? Number(deductedMap[pid]) : (Number(log.stockDeducted ?? log.inputQty) || 0)) * pObj.unitSizeMl);
+        pObj.stockMl = Math.max(0, Math.round(pObj.stockMl - sign * usedMl));
+      }
+      ensurePesticideInventoryFields_(pObj);
     });
   }
 }
@@ -1117,6 +1201,15 @@ function editWorkLog(logId) {
   if (document.getElementById('workTempInput')) {
     document.getElementById('workTempInput').value = log.tempC !== undefined ? log.tempC : 25;
   }
+  if (document.getElementById('workRainfallInput')) {
+    document.getElementById('workRainfallInput').value = log.rainfallMm !== undefined ? log.rainfallMm : 0;
+  }
+  if (document.getElementById('workWindDirSelect')) {
+    document.getElementById('workWindDirSelect').value = log.windDir || '静穏';
+  }
+  if (document.getElementById('workWindSpeedInput')) {
+    document.getElementById('workWindSpeedInput').value = log.windSpeedMs !== undefined ? log.windSpeedMs : 1.5;
+  }
   if (document.getElementById('workDiaryMemoInput')) {
     document.getElementById('workDiaryMemoInput').value = log.memo || '';
   }
@@ -1144,6 +1237,9 @@ function editWorkLog(logId) {
   } else if (log.type === 'harvest') {
     currentHarvestBags = Number(log.harvestBags) || Math.max(10, Math.round((Number(log.totalKg) || 0) / 30));
     document.getElementById('harvestBagValue').textContent = currentHarvestBags;
+    if (document.getElementById('harvestWasteKgInput')) {
+      document.getElementById('harvestWasteKgInput').value = Number(log.wasteRiceKg) || 0;
+    }
     if (log.grade) document.getElementById('harvestGradeSelect').value = log.grade;
     if (log.moisture) document.getElementById('harvestMoistureInput').value = log.moisture;
   }
@@ -1200,6 +1296,9 @@ function submitUnifiedWorkLog() {
 
     const weatherVal = document.getElementById('workWeatherSelect')?.value || '☀️ 晴れ';
     const tempVal = Number(document.getElementById('workTempInput')?.value || 25);
+    const rainfallVal = Math.max(0, Number(document.getElementById('workRainfallInput')?.value) || 0);
+    const windDirVal = document.getElementById('workWindDirSelect')?.value || '静穏';
+    const windSpeedVal = Math.max(0, Number(document.getElementById('workWindSpeedInput')?.value) || 0);
     const memoVal = (document.getElementById('workDiaryMemoInput')?.value || '').trim();
 
     let newLog = {
@@ -1209,6 +1308,9 @@ function submitUnifiedWorkLog() {
       worker: workerName,
       weather: weatherVal,
       tempC: tempVal,
+      rainfallMm: rainfallVal,
+      windDir: windDirVal,
+      windSpeedMs: windSpeedVal,
       memo: memoVal,
       fieldIds: selectedFields.map(f => f.id),
       totalArea: totalArea,
@@ -1255,11 +1357,21 @@ function submitUnifiedWorkLog() {
       const primaryUnitInfo = calcPesticideUnitQty(selectedPests[0], totalArea, totalChemMl);
 
       const stockDeductedByMap = {};
+      const usedMlByMap = {};
+      const usedKgByMap = {};
       const unitPriceByMap = {};
       const activeIngredientByMap = {};
       selectedPests.forEach(p => {
         const uInfo = calcPesticideUnitQty(p, totalArea, totalChemMl);
-        stockDeductedByMap[p.id] = Math.min(p.stock, uInfo.qty);
+        if (uInfo.isLiquid) {
+          const actualUsedMl = Math.min(Math.round(Number(p.stockMl) || 0), uInfo.neededMl);
+          usedMlByMap[p.id] = actualUsedMl;
+          stockDeductedByMap[p.id] = Math.round((actualUsedMl / (uInfo.unitSizeMl || 500)) * 100) / 100;
+        } else {
+          const actualUsedKg = Math.min(Math.round((Number(p.stockKg) || 0) * 10) / 10, uInfo.neededKg);
+          usedKgByMap[p.id] = actualUsedKg;
+          stockDeductedByMap[p.id] = Math.round((actualUsedKg / (uInfo.unitSizeKg || 3)) * 100) / 100;
+        }
         unitPriceByMap[p.id] = Number(p.priceYen) || 0;
         activeIngredientByMap[p.id] = p.activeIngredient || p.name;
       });
@@ -1274,6 +1386,8 @@ function submitUnifiedWorkLog() {
       newLog.inputQty = primaryUnitInfo.qty;
       newLog.stockDeducted = primaryUnitInfo.qty;
       newLog.stockDeductedByMap = stockDeductedByMap;
+      newLog.usedMlByMap = usedMlByMap;
+      newLog.usedKgByMap = usedKgByMap;
       newLog.unitPriceByMap = unitPriceByMap;
       newLog.activeIngredientByMap = activeIngredientByMap;
       newLog.dilutionRate = dilRate;
@@ -1286,18 +1400,25 @@ function submitUnifiedWorkLog() {
       newLog.materialSummary = `${summaryNames} (${dilRate}倍${selectedPests.length > 1 ? `・${selectedPests.length}剤混用` : ''} / 液量${totalWaterL}L)`;
     } else if (currentWorkCat === '収穫') {
       const harvTotalKg = currentHarvestBags * 30;
+      const wasteKg = Math.max(0, Number(document.getElementById('harvestWasteKgInput')?.value) || 0);
+      const wasteRatePct = (harvTotalKg + wasteKg) > 0
+        ? Math.round((wasteKg / (harvTotalKg + wasteKg)) * 1000) / 10
+        : 0;
       const yieldKg10a = totalArea > 0 ? (harvTotalKg / (totalArea / 10)) : 0;
       const yieldTawara10a = yieldKg10a / 60;
       const grade = document.getElementById('harvestGradeSelect')?.value || '1等';
       const moist = document.getElementById('harvestMoistureInput')?.value || '14.8';
+      const wasteNote = wasteKg > 0 ? ` / 屑米 ${wasteKg}kg (${wasteRatePct.toFixed(1)}%)` : '';
 
       newLog.type = 'harvest';
       newLog.totalKg = harvTotalKg;
+      newLog.wasteRiceKg = wasteKg;
+      newLog.wasteRatePct = wasteRatePct;
       newLog.harvestBags = currentHarvestBags;
       newLog.yieldTawara10a = Number(yieldTawara10a.toFixed(1));
       newLog.grade = grade;
       newLog.moisture = moist;
-      newLog.materialSummary = `玄米 ${currentHarvestBags}袋 (${harvTotalKg}kg) / 反収 ${yieldTawara10a.toFixed(1)}俵/10a / 水分${moist}% / ${grade}`;
+      newLog.materialSummary = `玄米 ${currentHarvestBags}袋 (${harvTotalKg}kg)${wasteNote} / 反収 ${yieldTawara10a.toFixed(1)}俵/10a / 水分${moist}% / ${grade}`;
     }
 
     applyLogResourceEffects_(newLog, +1);
@@ -1368,7 +1489,7 @@ function renderDiaryTimeline() {
     const fBadges = matchedFields.map(f =>
       `<button type="button" onclick="openFieldInGoogleMaps('${escapeHtml(f.id)}')" class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 font-semibold text-[11px] hover:bg-emerald-500/25" title="Googleマップでこの圃場を表示">📍${escapeHtml(f.name)}(${f.area}a)</button>`
     ).join(' ');
-    const weatherStr = l.weather ? `${escapeHtml(l.weather)}${l.tempC !== undefined ? ` (${escapeHtml(l.tempC)}℃)` : ''}` : '☀️ 晴れ';
+    const weatherStr = escapeHtml(formatWeatherSummary_(l));
     const memoBlock = l.memo
       ? `<div class="mt-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-[var(--foreground)]"><span class="font-bold text-amber-700">📔 日誌メモ:</span> ${escapeHtml(l.memo)}</div>`
       : '';
@@ -1635,7 +1756,7 @@ function inspectField(fieldId) {
     histContainer.innerHTML = fieldLogs.map(l => {
       const ratio = logAreaRatio_(l, f);
       const allocHr = ((Number(l.duration) || 0) * ratio).toFixed(2);
-      const weatherInfo = l.weather ? ` ／ ${escapeHtml(l.weather)}${l.tempC !== undefined ? `(${escapeHtml(l.tempC)}℃)` : ''}` : '';
+      const weatherInfo = l.weather ? ` ／ ${escapeHtml(formatWeatherSummary_(l))}` : '';
       const memoHtml = l.memo
         ? `<div class="mt-1.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-800">📔 ${escapeHtml(l.memo)}</div>`
         : '';
@@ -1725,8 +1846,21 @@ function restockMaterial(type, id, amount) {
     fertilizers[id].stock += amount;
     showToast(`📦 ${fertilizers[id].name} を +${amount}袋 入庫しました`, `現在庫: ${fertilizers[id].stock} 袋`);
   } else if (type === 'pest' && pesticides[id]) {
-    pesticides[id].stock += amount;
-    showToast(`📦 ${pesticides[id].name} を +${amount}本 入庫しました`, `現在庫: ${pesticides[id].stock} 本`);
+    const p = pesticides[id];
+    ensurePesticideInventoryFields_(p);
+    if (p.formulation === 'granule') {
+      const addKg = Math.round(amount * p.unitSizeKg * 10) / 10;
+      p.stockKg = Math.round((p.stockKg + addKg) * 10) / 10;
+      ensurePesticideInventoryFields_(p);
+      const st = formatPesticideStock_(p);
+      showToast(`📦 ${p.name} を +${amount}袋（+${addKg}kg）入庫しました`, `現在庫: ${st.totalLabel}（${st.detailLabel}）`);
+    } else {
+      const addMl = Math.round(amount * p.unitSizeMl);
+      p.stockMl = Math.round(p.stockMl + addMl);
+      ensurePesticideInventoryFields_(p);
+      const st = formatPesticideStock_(p);
+      showToast(`📦 ${p.name} を +${amount}本（+${addMl.toLocaleString()}mL）入庫しました`, `現在庫: ${st.totalLabel}（${st.detailLabel}）`);
+    }
   }
   saveStateToStorage();
   renderSelectOptions();
@@ -1798,20 +1932,28 @@ function renderResourcesTab() {
   }).join('');
 
   const pestCards = Object.values(pesticides).map(p => {
+    const st = formatPesticideStock_(p);
     const ingLabel = p.activeIngredient ? ` ／ 有効成分: ${escapeHtml(p.activeIngredient)}` : '';
+    const specLabel = p.formulation === 'granule' ? `粒剤・粉剤 (${p.unitSizeKg}kg/袋)` : `液剤 (${p.unitSizeMl}mL/本)`;
+    const unitBtn = p.formulation === 'granule' ? '袋' : '本';
+    const lowText = st.isLow ? '<span class="text-amber-600 font-bold">⚠️ 在庫少（2本・袋未満）</span>' : '在庫十分';
     return `
-      <div class="p-3.5 rounded-2xl bg-[var(--background)] border border-[var(--border)] flex items-center justify-between gap-2">
+      <div class="p-3.5 rounded-2xl bg-[var(--background)] border border-[var(--border)] flex items-center justify-between flex-wrap gap-2">
         <div>
-          <span class="text-xs font-bold text-sky-600">[農薬] ${escapeHtml(p.regNo)} (上限${p.maxUse}回)${ingLabel}</span>
+          <span class="text-xs font-bold text-sky-600">[農薬・${specLabel}] ${escapeHtml(p.regNo)} (上限${p.maxUse}回)${ingLabel}</span>
           <div class="font-bold text-sm text-[var(--foreground)]">${escapeHtml(p.name)}</div>
-          <div class="text-xs text-[var(--muted-foreground)]">収穫前 ${p.phiDays} 日まで ／ 単価 ${(Number(p.priceYen) || 3000).toLocaleString()}円</div>
+          <div class="text-xs text-[var(--muted-foreground)]">収穫前 ${p.phiDays} 日まで ／ 単価 ${(Number(p.priceYen) || 3000).toLocaleString()}円 ／ ${lowText}</div>
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
           <div class="text-right mr-1">
-            <div class="text-base font-bold text-[var(--foreground)]">残 ${p.stock} 本</div>
+            <div class="text-base font-bold ${st.isLow ? 'text-amber-600' : 'text-[var(--foreground)]'}">残 ${st.totalLabel}</div>
+            <div class="text-[11px] text-[var(--muted-foreground)]">(${st.detailLabel})</div>
           </div>
-          <button onclick="restockMaterial('pest', '${escapeHtml(p.id)}', 5)" class="px-2.5 py-1.5 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold border border-[var(--border)] hover:opacity-80">
-            ＋5本入庫
+          <button onclick="restockMaterial('pest', '${escapeHtml(p.id)}', 1)" class="px-2 py-1.5 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold border border-[var(--border)] hover:opacity-80">
+            ＋1${unitBtn}
+          </button>
+          <button onclick="restockMaterial('pest', '${escapeHtml(p.id)}', 5)" class="px-2 py-1.5 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold border border-[var(--border)] hover:opacity-80">
+            ＋5${unitBtn}
           </button>
           <button onclick="deleteMaterialMaster('pest', '${escapeHtml(p.id)}')" class="px-2 py-1.5 rounded-xl border border-red-500/40 bg-red-500/10 text-red-600 text-xs font-bold hover:bg-red-500/20" title="農薬を削除">
             🗑️
@@ -2118,7 +2260,7 @@ function renderReportsTab() {
 
   document.getElementById('dailyReportBody').innerHTML = workLogs.map(l => {
     const fNames = escapeHtml((l.fieldIds || []).map(id => fieldsData.find(f => f.id === id)?.name || id).join('、'));
-    const weatherNote = l.weather ? `<div class="text-[11px] text-slate-600">${escapeHtml(l.weather)}${l.tempC !== undefined ? ` (${escapeHtml(l.tempC)}℃)` : ''}</div>` : '';
+    const weatherNote = l.weather ? `<div class="text-[11px] text-slate-600">${escapeHtml(formatWeatherSummary_(l))}</div>` : '';
     const memoNote = l.memo ? `<div class="text-[11px] text-amber-800 mt-0.5">📔 ${escapeHtml(l.memo)}</div>` : '';
     return `
       <tr>
@@ -2143,6 +2285,7 @@ function renderReportsTab() {
     let sumArea = 0;
     let sumHours = 0;
     let sumHarvKg = 0;
+    let sumWasteKg = 0;
     let sumMatCost = 0;
     let sumLabMachCost = 0;
     let sumRevenue = 0;
@@ -2157,11 +2300,15 @@ function renderReportsTab() {
       sumArea += f.area;
       sumHours += p.cumHours;
       sumHarvKg += p.harvKg;
+      sumWasteKg += p.wasteRiceKg || 0;
       sumMatCost += matCost;
       sumLabMachCost += labMachCost;
       sumRevenue += p.grossRevenueYen;
       sumGrossProfit += p.grossProfitYen;
 
+      const wasteCellNote = p.wasteRiceKg > 0
+        ? `<div class="text-[10px] text-slate-500">屑米: ${p.wasteRiceKg.toLocaleString()}kg (${p.wasteRatePct.toFixed(1)}%)</div>`
+        : '';
       const profitCls = p.grossProfitYen >= 0 ? 'text-emerald-700' : 'text-red-600';
       return `
         <tr>
@@ -2175,6 +2322,7 @@ function renderReportsTab() {
           <td class="border border-slate-400 p-2 text-right">
             <span class="font-bold text-amber-700">${p.yieldTawara10a.toFixed(1)} 俵/10a</span>
             <div class="text-[11px] text-slate-600">${p.harvKg.toLocaleString()} kg (${escapeHtml(gradeStr)})</div>
+            ${wasteCellNote}
           </td>
           <td class="border border-slate-400 p-2 text-right">
             <div class="font-semibold">${matCost.toLocaleString()} 円</div>
@@ -2206,7 +2354,7 @@ function renderReportsTab() {
         <td class="border border-slate-400 p-2 text-right">計 ${sumArea} a</td>
         <td class="border border-slate-400 p-2 text-right">${sumHours.toFixed(1)} h</td>
         <td class="border border-slate-400 p-2 text-right">-</td>
-        <td class="border border-slate-400 p-2 text-right text-amber-800">平均 ${avgYield10a} 俵/10a<div class="text-[11px]">計 ${sumHarvKg.toLocaleString()} kg</div></td>
+        <td class="border border-slate-400 p-2 text-right text-amber-800">平均 ${avgYield10a} 俵/10a<div class="text-[11px]">計 ${sumHarvKg.toLocaleString()} kg${sumWasteKg > 0 ? ` / 屑${sumWasteKg.toLocaleString()}kg` : ''}</div></td>
         <td class="border border-slate-400 p-2 text-right">${sumMatCost.toLocaleString()} 円</td>
         <td class="border border-slate-400 p-2 text-right">${sumLabMachCost.toLocaleString()} 円</td>
         <td class="border border-slate-400 p-2 text-right">${sumRevenue.toLocaleString()} 円</td>
@@ -2223,11 +2371,13 @@ function renderReportsTab() {
 
 function updateCostSettingsFromUi() {
   const riceInput = document.getElementById('simRicePriceInput');
+  const wasteInput = document.getElementById('simWastePriceInput');
   const wageInput = document.getElementById('simHourlyWageInput');
   if (typeof costSettings !== 'object' || !costSettings) {
-    costSettings = { hourlyWageYen: 1500, ricePricePerTawaraYen: 18500 };
+    costSettings = { hourlyWageYen: 1500, ricePricePerTawaraYen: 18500, wasteRicePricePerKgYen: 50 };
   }
   if (riceInput) costSettings.ricePricePerTawaraYen = Math.max(1000, Number(riceInput.value) || 18500);
+  if (wasteInput) costSettings.wasteRicePricePerKgYen = Math.max(0, Number(wasteInput.value) || 0);
   if (wageInput) costSettings.hourlyWageYen = Math.max(500, Number(wageInput.value) || 1500);
   saveStateToStorage();
   renderReportsTab();
@@ -2357,14 +2507,35 @@ function addNewFertilizerMaster(source) {
   showToast(`✅ 新規肥料「${name} (N${n}-P${p}-K${k})」を追加しました`, '施肥入力リストおよび在庫・原価計算へ即時反映されました。');
 }
 
+function syncPestUnitPlaceholder(source) {
+  const isQuick = source === 'quick';
+  const formEl = document.getElementById(isQuick ? 'quickPestFormulation' : 'newPestFormulation');
+  const labelEl = document.getElementById(isQuick ? 'quickPestUnitSizeLabel' : 'newPestUnitSizeLabel');
+  const sizeEl = document.getElementById(isQuick ? 'quickPestUnitSize' : 'newPestUnitSize');
+  if (!formEl || !labelEl || !sizeEl) return;
+  if (formEl.value === 'granule') {
+    labelEl.textContent = '1袋重量 (kg)';
+    sizeEl.step = '0.5';
+    if (Number(sizeEl.value) >= 50) sizeEl.value = '3';
+  } else {
+    labelEl.textContent = '1本容量 (mL)';
+    sizeEl.step = '50';
+    if (Number(sizeEl.value) < 50) sizeEl.value = '500';
+  }
+}
+
 function addNewPesticideMaster(source) {
   const isQuick = source === 'quick';
   const nameEl = document.getElementById(isQuick ? 'quickPestName' : 'newPestName');
   const regEl = document.getElementById(isQuick ? 'quickPestRegNo' : 'newPestRegNo');
   const ingEl = document.getElementById(isQuick ? 'quickPestIngredient' : 'newPestIngredient');
+  const formEl = document.getElementById(isQuick ? 'quickPestFormulation' : 'newPestFormulation');
+  const sizeEl = document.getElementById(isQuick ? 'quickPestUnitSize' : 'newPestUnitSize');
   const name = (nameEl?.value || '').trim();
   const regNo = (regEl?.value || '').trim() || '登録番号未設定';
   const activeIngredient = (ingEl?.value || '').trim() || name;
+  const formulation = formEl?.value === 'granule' ? 'granule' : 'liquid';
+  const rawSize = Number(sizeEl?.value || (formulation === 'granule' ? 3 : 500));
   const maxUse = Math.max(1, Number(document.getElementById(isQuick ? 'quickPestMaxUse' : 'newPestMaxUse')?.value || 2));
   const phiDays = Math.max(1, Number(document.getElementById(isQuick ? 'quickPestPhiDays' : 'newPestPhiDays')?.value || 14));
   const stock = Math.max(0, Number(document.getElementById(isQuick ? 'quickPestStock' : 'newPestStock')?.value || 10));
@@ -2376,17 +2547,28 @@ function addNewPesticideMaster(source) {
   }
 
   const newId = generateNextId('P', Object.keys(pesticides));
-  pesticides[newId] = {
+  const newPest = {
     id: newId,
     name,
     regNo,
     activeIngredient,
+    formulation,
     maxUse,
     phiDays,
     stock,
-    unit: '本(500mL)',
     priceYen
   };
+  if (formulation === 'granule') {
+    newPest.unitSizeKg = Math.max(0.1, rawSize);
+    newPest.stockKg = Math.round(stock * newPest.unitSizeKg * 10) / 10;
+    newPest.unit = `袋(${newPest.unitSizeKg}kg)`;
+  } else {
+    newPest.unitSizeMl = Math.max(10, rawSize);
+    newPest.stockMl = Math.round(stock * newPest.unitSizeMl);
+    newPest.unit = `本(${newPest.unitSizeMl}mL)`;
+  }
+  ensurePesticideInventoryFields_(newPest);
+  pesticides[newId] = newPest;
   if (nameEl) nameEl.value = '';
   if (regEl) regEl.value = '';
   if (ingEl) ingEl.value = '';
@@ -2894,6 +3076,9 @@ function importFullBackupJson(event) {
       document.getElementById('gasWebhookUrl').value = gasWebhookUrl || '';
       if (document.getElementById('simRicePriceInput') && costSettings) {
         document.getElementById('simRicePriceInput').value = costSettings.ricePricePerTawaraYen || 18500;
+      }
+      if (document.getElementById('simWastePriceInput') && costSettings) {
+        document.getElementById('simWastePriceInput').value = costSettings.wasteRicePricePerKgYen ?? 50;
       }
       if (document.getElementById('simHourlyWageInput') && costSettings) {
         document.getElementById('simHourlyWageInput').value = costSettings.hourlyWageYen || 1500;

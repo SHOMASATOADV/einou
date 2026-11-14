@@ -749,7 +749,18 @@ function doPost(e) {
         }
         existingLogIdSet[logId] = true;
         insertedIds.push(logId);
-        const weatherPrefix = item.weather ? `[${item.weather}${item.tempC !== undefined ? ` ${item.tempC}℃` : ''}] ` : '';
+        const weatherDetails = [];
+        if (item.tempC !== undefined && item.tempC !== '') weatherDetails.push(`${item.tempC}℃`);
+        if (item.rainfallMm !== undefined && Number(item.rainfallMm) > 0) weatherDetails.push(`降水${item.rainfallMm}mm`);
+        if (item.windDir || (item.windSpeedMs !== undefined && item.windSpeedMs !== '')) {
+          const wDir = item.windDir && item.windDir !== '静穏' ? `${item.windDir} ` : '';
+          const wSpd = (item.windSpeedMs !== undefined && item.windSpeedMs !== '') ? `${item.windSpeedMs}m/s` : '';
+          const wStr = `${wDir}${wSpd}`.trim();
+          if (wStr) weatherDetails.push(`風:${wStr}`);
+        }
+        const weatherPrefix = item.weather
+          ? `[${item.weather}${weatherDetails.length > 0 ? ` ${weatherDetails.join(' / ')}` : ''}] `
+          : '';
         const memoSuffix = item.memo ? ` ／ 📔${item.memo}` : '';
         const combinedNotes = `${weatherPrefix}${item.materialSummary || ''}${memoSuffix}`;
         newLogRows.push([
