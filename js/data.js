@@ -612,7 +612,25 @@ function saveStateToStorage() {
 // 圃場の集計値（累計NPK・農薬使用回数・有効成分別回数・進捗・収量）を作業履歴から再計算
 // =========================================================================
 function makeEmptyBaseline() {
-  return { nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: {}, doneCats: [], stage: '未着手', harvestKg: 0, wasteRiceKg: 0, yieldTawara10a: 0, grade: '' };
+  return {
+    nPer10a: 0, pPer10a: 0, kPer10a: 0, pestCount: {}, doneCats: [], stage: '未着手',
+    harvestKg: 0, wasteRiceKg: 0, yieldTawara10a: 0, grade: '',
+    moisture: null, tasteScore: null, protein: null, amylose: null, wholeGrainRate: null, fattyAcid: null
+  };
+}
+
+/**
+ * 食味・品質データ（食味値・タンパク・整粒歩合・アミロース等）を読みやすい文字列に整形する
+ */
+function formatTasteSummary_(obj) {
+  if (!obj) return '';
+  const parts = [];
+  if (obj.tasteScore !== undefined && obj.tasteScore !== null && obj.tasteScore !== '') parts.push(`食味${obj.tasteScore}点`);
+  if (obj.protein !== undefined && obj.protein !== null && obj.protein !== '') parts.push(`タンパク${obj.protein}%`);
+  if (obj.wholeGrainRate !== undefined && obj.wholeGrainRate !== null && obj.wholeGrainRate !== '') parts.push(`整粒${obj.wholeGrainRate}%`);
+  if (obj.amylose !== undefined && obj.amylose !== null && obj.amylose !== '') parts.push(`アミロース${obj.amylose}%`);
+  if (obj.fattyAcid !== undefined && obj.fattyAcid !== null && obj.fattyAcid !== '') parts.push(`脂肪酸度${obj.fattyAcid}`);
+  return parts.join(' / ');
 }
 
 /**
@@ -700,6 +718,12 @@ function recalculateFieldStats() {
     let wasteRiceKg = b.wasteRiceKg || 0;
     let yieldTawara10a = b.yieldTawara10a;
     let grade = b.grade;
+    let moisture = b.moisture ?? null;
+    let tasteScore = b.tasteScore ?? null;
+    let protein = b.protein ?? null;
+    let amylose = b.amylose ?? null;
+    let wholeGrainRate = b.wholeGrainRate ?? null;
+    let fattyAcid = b.fattyAcid ?? null;
 
     const logs = workLogs
       .map((l, idx) => ({ l, idx }))
@@ -726,6 +750,12 @@ function recalculateFieldStats() {
         wasteRiceKg += Math.round((Number(l.wasteRiceKg) || 0) * ratio);
         if (l.yieldTawara10a !== undefined) yieldTawara10a = Number(l.yieldTawara10a);
         if (l.grade) grade = l.grade;
+        if (l.moisture !== undefined && l.moisture !== null && l.moisture !== '') moisture = Number(l.moisture);
+        if (l.tasteScore !== undefined && l.tasteScore !== null && l.tasteScore !== '') tasteScore = Number(l.tasteScore);
+        if (l.protein !== undefined && l.protein !== null && l.protein !== '') protein = Number(l.protein);
+        if (l.amylose !== undefined && l.amylose !== null && l.amylose !== '') amylose = Number(l.amylose);
+        if (l.wholeGrainRate !== undefined && l.wholeGrainRate !== null && l.wholeGrainRate !== '') wholeGrainRate = Number(l.wholeGrainRate);
+        if (l.fattyAcid !== undefined && l.fattyAcid !== null && l.fattyAcid !== '') fattyAcid = Number(l.fattyAcid);
       }
       if (l.cat && !doneCats.includes(l.cat)) doneCats.push(l.cat);
       if (l.cat) stage = `${l.cat}済`;
@@ -750,5 +780,11 @@ function recalculateFieldStats() {
     f.wasteRiceKg = wasteRiceKg;
     f.yieldTawara10a = yieldTawara10a;
     f.grade = grade;
+    f.moisture = moisture;
+    f.tasteScore = tasteScore;
+    f.protein = protein;
+    f.amylose = amylose;
+    f.wholeGrainRate = wholeGrainRate;
+    f.fattyAcid = fattyAcid;
   });
 }

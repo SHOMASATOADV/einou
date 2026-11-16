@@ -390,8 +390,17 @@
           <div id="safetyAlertBox" class="p-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-xs font-semibold text-emerald-600"></div>
         </div>
 
-        <!-- 収穫・刈取（反収・屑米・等級・水分量 自動按分）モードUI -->
+        <!-- 収穫・刈取（反収・屑米・等級・水分量・食味値OCR 自動按分）モードUI -->
         <div id="harvestPanel" class="hidden">
+          <div class="mb-3 p-3 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <div class="text-xs font-bold text-sky-700 dark:text-sky-300">📸 食味計画面・JA検査伝票の写真読み取り（OCR）</div>
+              <div class="text-[11px] text-[var(--muted-foreground)]">カメラ撮影や画像から「食味値・水分・タンパク・整粒歩合・等級」を自動入力できます</div>
+            </div>
+            <button type="button" onclick="openTasteOcrModal()" class="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition shadow-sm shrink-0">
+              📷 写真から食味を読み取る
+            </button>
+          </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
             <div>
               <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">収穫袋数（30kg紙袋換算）</label>
@@ -412,7 +421,7 @@
             </div>
             <div>
               <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">玄米水分量 (%)</label>
-              <input type="number" step="0.1" id="harvestMoistureInput" value="14.8" onchange="recalculatePreview()" class="w-full h-11 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-bold text-[var(--foreground)]">
+              <input type="number" step="0.1" id="harvestMoistureInput" value="14.8" onchange="recalculatePreview()" oninput="recalculatePreview()" class="w-full h-11 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-bold text-[var(--foreground)]">
             </div>
             <div>
               <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1.5">検査等級（見込）</label>
@@ -420,9 +429,32 @@
                 <option value="1等">🥇 1等米</option>
                 <option value="2等">🥈 2等米</option>
                 <option value="3等">🥉 3等米</option>
+                <option value="規格外">⚪ 規格外</option>
               </select>
             </div>
           </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+            <div>
+              <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1">食味値 (点・任意)</label>
+              <input type="number" step="0.1" min="40" max="100" id="harvestTasteScoreInput" placeholder="例: 84" onchange="recalculatePreview()" oninput="recalculatePreview()" class="w-full h-10 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-bold text-[var(--foreground)]">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1">タンパク (%・任意)</label>
+              <input type="number" step="0.1" min="3" max="15" id="harvestProteinInput" placeholder="例: 6.2" onchange="recalculatePreview()" oninput="recalculatePreview()" class="w-full h-10 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-bold text-[var(--foreground)]">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1">整粒歩合 (%・任意)</label>
+              <input type="number" step="0.1" min="30" max="100" id="harvestWholeGrainInput" placeholder="例: 84.5" onchange="recalculatePreview()" oninput="recalculatePreview()" class="w-full h-10 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-bold text-[var(--foreground)]">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-[var(--muted-foreground)] mb-1">アミロース (%・任意)</label>
+              <input type="number" step="0.1" min="5" max="30" id="harvestAmyloseInput" placeholder="例: 17.4" onchange="recalculatePreview()" oninput="recalculatePreview()" class="w-full h-10 px-3 rounded-xl bg-[var(--card)] border border-[var(--border)] text-sm font-bold text-[var(--foreground)]">
+            </div>
+          </div>
+          <input type="hidden" id="harvestFattyAcidInput" value="">
+          <input type="hidden" id="harvestTasteLotNoInput" value="">
+          <input type="hidden" id="harvestTasteOcrSourceInput" value="manual">
 
           <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
             <div>
@@ -1446,6 +1478,39 @@
       </div>
 
       <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-base font-bold text-[var(--foreground)]">🤖 食味計・検査伝票 OCR / Vision API 連携設定</h2>
+          <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 text-xs font-bold">Gemini Vision対応</span>
+        </div>
+        <p class="text-xs text-[var(--muted-foreground)] mb-3">
+          収穫画面の写真読取で利用するAI解析方式を設定します。APIキーはブラウザ内（<code class="px-1 py-0.5 rounded bg-[var(--secondary)]">localStorage</code>）にのみ保存され、JSONバックアップには含まれません。
+        </p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+          <div>
+            <label class="block text-xs font-bold mb-1">解析方式</label>
+            <select id="tasteOcrProviderSelect" onchange="saveTasteOcrSettings()" class="w-full px-3 py-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs font-semibold">
+              <option value="gemini">Gemini Vision API（推奨・高精度JSON抽出）</option>
+              <option value="local">ローカル正規表現パーサー・手動補正のみ</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold mb-1">Gemini モデル</label>
+            <select id="tasteOcrModelSelect" onchange="saveTasteOcrSettings()" class="w-full px-3 py-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs font-semibold">
+              <option value="gemini-2.5-flash">gemini-2.5-flash（推奨）</option>
+              <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+            </select>
+          </div>
+        </div>
+        <label class="block text-xs font-bold mb-1">Gemini API キー（任意）</label>
+        <div class="flex gap-2">
+          <input type="password" id="tasteOcrApiKeyInput" autocomplete="off" placeholder="AIzaSy..." class="flex-1 px-3 py-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs">
+          <button type="button" onclick="saveTasteOcrSettings()" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition shrink-0">
+            💾 保存
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
         <h2 class="text-base font-bold text-[var(--foreground)] mb-1">💾 端末内データのバックアップ・初期化</h2>
         <p class="text-xs text-[var(--muted-foreground)] mb-4">
           現在のすべてのデータ（圃場・資材在庫・機械アワー・作業日誌）はブラウザの <code class="px-1 py-0.5 rounded bg-[var(--secondary)]">localStorage</code> に自動保存されています。PC故障や機種変更時もJSONファイルで丸ごとバックアップ・復元できます。
@@ -1466,6 +1531,122 @@
     </div>
 
   </section>
+
+  <!-- ========================================================================= -->
+  <!-- 📸 食味計画面・検査伝票 写真撮影＆OCR読み取りモーダル                        -->
+  <!-- ========================================================================= -->
+  <div id="tasteOcrModal" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" onclick="if(event.target===this) closeTasteOcrModal()">
+    <div class="bg-[var(--card)] border-2 border-[var(--border)] rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] bg-sky-600 text-white shrink-0">
+        <div>
+          <h2 class="text-base md:text-lg font-bold">📸 食味計画面・検査伝票 OCR読み取り</h2>
+          <p class="text-xs text-sky-100">写真を撮影・選択すると「食味値・水分・タンパク・整粒歩合・等級」を自動抽出します</p>
+        </div>
+        <button type="button" onclick="closeTasteOcrModal()" class="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold transition">✕ 閉じる</button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-4">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <span id="tasteOcrModeBadge" class="px-2.5 py-1 rounded-lg bg-slate-500/15 text-slate-700 text-xs font-bold">解析モード確認中</span>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" onclick="loadTasteOcrSample('meter')" class="px-3 py-1.5 rounded-xl bg-[var(--secondary)] hover:opacity-80 text-[var(--foreground)] text-xs font-bold border border-[var(--border)]">
+              📟 食味計画面サンプル
+            </button>
+            <button type="button" onclick="loadTasteOcrSample('slip')" class="px-3 py-1.5 rounded-xl bg-[var(--secondary)] hover:opacity-80 text-[var(--foreground)] text-xs font-bold border border-[var(--border)]">
+              🧾 JA検査伝票サンプル
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- 左：写真撮影・プレビュー -->
+          <div class="space-y-3">
+            <input type="file" id="tasteOcrFileInput" accept="image/*" capture="environment" onchange="handleTasteImageSelect(event)" class="hidden">
+            <div class="flex gap-2">
+              <button type="button" onclick="document.getElementById('tasteOcrFileInput').click()" class="flex-1 py-2.5 px-3 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs transition">
+                📷 カメラ撮影 / 画像を選択
+              </button>
+              <button type="button" onclick="runTasteOcrAnalysis()" class="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">
+                🔍 再解析
+              </button>
+            </div>
+            <div class="rounded-2xl border-2 border-dashed border-[var(--border)] bg-[var(--background)] min-h-[220px] flex items-center justify-center overflow-hidden p-2">
+              <img id="tasteOcrPreviewImg" src="" alt="食味計・検査伝票プレビュー" class="hidden max-h-[260px] w-auto rounded-xl object-contain">
+              <div id="tasteOcrPreviewEmpty" class="text-center text-xs text-[var(--muted-foreground)] p-4">
+                上の「📷 カメラ撮影 / 画像を選択」から写真を選ぶか、<br>右上の「サンプル」ボタンで動作を試せます。
+              </div>
+            </div>
+            <div id="tasteOcrStatusText" class="text-xs font-semibold text-sky-700 dark:text-sky-300"></div>
+          </div>
+
+          <!-- 右：抽出結果の確認・手動補正 -->
+          <div class="space-y-3">
+            <div id="tasteOcrConfidenceNote" class="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-700 dark:text-emerald-300">
+              抽出された項目を確認・必要に応じて微調整してください。
+            </div>
+            <div class="grid grid-cols-2 gap-2.5">
+              <div>
+                <label class="block text-[11px] font-bold text-[var(--muted-foreground)] mb-1">食味値 (点)</label>
+                <input type="number" step="0.1" id="ocrResTasteScore" class="w-full h-9 px-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs font-bold">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-[var(--muted-foreground)] mb-1">玄米水分 (%)</label>
+                <input type="number" step="0.1" id="ocrResMoisture" class="w-full h-9 px-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs font-bold">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-[var(--muted-foreground)] mb-1">タンパク (%)</label>
+                <input type="number" step="0.1" id="ocrResProtein" class="w-full h-9 px-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs font-bold">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-[var(--muted-foreground)] mb-1">整粒歩合 (%)</label>
+                <input type="number" step="0.1" id="ocrResWholeGrainRate" class="w-full h-9 px-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs font-bold">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-[var(--muted-foreground)] mb-1">アミロース (%)</label>
+                <input type="number" step="0.1" id="ocrResAmylose" class="w-full h-9 px-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs font-bold">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-[var(--muted-foreground)] mb-1">脂肪酸度</label>
+                <input type="number" step="0.1" id="ocrResFattyAcid" class="w-full h-9 px-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs font-bold">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-[var(--muted-foreground)] mb-1">検査等級</label>
+                <select id="ocrResGrade" class="w-full h-9 px-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs font-semibold">
+                  <option value="">（未指定）</option>
+                  <option value="1等">1等</option>
+                  <option value="2等">2等</option>
+                  <option value="3等">3等</option>
+                  <option value="規格外">規格外</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-[var(--muted-foreground)] mb-1">荷受袋数 (30kg袋)</label>
+                <input type="number" step="1" id="ocrResBags" class="w-full h-9 px-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs font-bold">
+              </div>
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-[var(--muted-foreground)] mb-1">伝票番号 / ロットNo（任意）</label>
+              <input type="text" id="ocrResLotNo" placeholder="例: JA-2026-0921-12" class="w-full h-9 px-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs">
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-[11px] font-bold text-[var(--muted-foreground)]">OCR読み取りテキスト（貼付・再抽出可）</label>
+                <button type="button" onclick="reparseTasteRawText()" class="text-[11px] font-bold text-sky-600 hover:underline">🔄 テキストから再抽出</button>
+              </div>
+              <textarea id="ocrResRawText" rows="3" placeholder="オフライン時はスマホのテキスト認識（Googleレンズ等）でコピーした文字をここに貼って「テキストから再抽出」もできます。" class="w-full p-2 rounded-xl bg-[var(--background)] border border-[var(--border)] text-[11px]"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-5 py-3 border-t border-[var(--border)] bg-[var(--secondary)] flex items-center justify-end gap-2 shrink-0">
+        <button type="button" onclick="closeTasteOcrModal()" class="px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--card)] text-xs font-bold">キャンセル</button>
+        <button type="button" onclick="applyTasteOcrToHarvestForm()" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm">
+          ✅ 収穫フォームへ反映
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- ========================================================================= -->
   <!-- 📖 アプリ内 取扱説明書・使い方ガイドモーダル                               -->
@@ -1600,6 +1781,7 @@
   </div>
 
   <script src="./js/data.js"></script>
+  <script src="./js/tasteOcr.js"></script>
   <script src="./js/app.js"></script>
 </body>
 </html>

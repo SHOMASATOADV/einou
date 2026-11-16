@@ -38,6 +38,7 @@ function initApp() {
   recalculateFieldStats();
   document.getElementById('gasWebhookUrl').value = gasWebhookUrl;
   if (document.getElementById('gasSyncToken')) document.getElementById('gasSyncToken').value = gasSyncToken;
+  if (typeof loadTasteOcrSettings === 'function') loadTasteOcrSettings();
   if (document.getElementById('simRicePriceInput') && typeof costSettings === 'object') {
     document.getElementById('simRicePriceInput').value = costSettings.ricePricePerTawaraYen || 18500;
   }
@@ -1112,9 +1113,17 @@ function recalculatePreview() {
   } else if (currentWorkCat === '収穫') {
     const grade = document.getElementById('harvestGradeSelect')?.value || '1等';
     const moist = document.getElementById('harvestMoistureInput')?.value || '14.8';
+    const tasteScore = document.getElementById('harvestTasteScoreInput')?.value;
+    const protein = document.getElementById('harvestProteinInput')?.value;
+    const wholeGrainRate = document.getElementById('harvestWholeGrainInput')?.value;
+    const amylose = document.getElementById('harvestAmyloseInput')?.value;
+    const tasteSummary = typeof formatTasteSummary_ === 'function'
+      ? formatTasteSummary_({ tasteScore, protein, wholeGrainRate, amylose })
+      : '';
+    const tasteNote = tasteSummary ? ` / ${tasteSummary}` : '';
     const wasteNote = wasteKg > 0 ? ` / 屑米${wasteKg}kg(${wasteRatePct.toFixed(1)}%)` : '';
     document.getElementById('previewStockSummary').textContent =
-      `収穫玄米: ${currentHarvestBags}袋 (${harvTotalKg}kg)${wasteNote} / 水分${moist}% / ${grade} (${yieldTawara10a.toFixed(1)}俵/10a)`;
+      `収穫玄米: ${currentHarvestBags}袋 (${harvTotalKg}kg)${wasteNote} / 水分${moist}% / ${grade}${tasteNote} (${yieldTawara10a.toFixed(1)}俵/10a)`;
   } else {
     document.getElementById('previewStockSummary').textContent = '資材消費なし（在庫変動なし）';
   }
@@ -1242,6 +1251,14 @@ function editWorkLog(logId) {
     }
     if (log.grade) document.getElementById('harvestGradeSelect').value = log.grade;
     if (log.moisture) document.getElementById('harvestMoistureInput').value = log.moisture;
+    const setOpt = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v !== undefined && v !== null) ? v : ''; };
+    setOpt('harvestTasteScoreInput', log.tasteScore);
+    setOpt('harvestProteinInput', log.protein);
+    setOpt('harvestWholeGrainInput', log.wholeGrainRate);
+    setOpt('harvestAmyloseInput', log.amylose);
+    setOpt('harvestFattyAcidInput', log.fattyAcid);
+    setOpt('harvestTasteLotNoInput', log.tasteLotNo);
+    setOpt('harvestTasteOcrSourceInput', log.tasteOcrSource || 'manual');
   }
 
   selectWorkCat(log.cat);
@@ -1408,6 +1425,17 @@ function submitUnifiedWorkLog() {
       const yieldTawara10a = yieldKg10a / 60;
       const grade = document.getElementById('harvestGradeSelect')?.value || '1等';
       const moist = document.getElementById('harvestMoistureInput')?.value || '14.8';
+      const readOptNum = (id) => {
+        const v = document.getElementById(id)?.value;
+        return (v !== undefined && v !== null && String(v).trim() !== '') ? Number(v) : null;
+      };
+      const tasteScore = readOptNum('harvestTasteScoreInput');
+      const protein = readOptNum('harvestProteinInput');
+      const wholeGrainRate = readOptNum('harvestWholeGrainInput');
+      const amylose = readOptNum('harvestAmyloseInput');
+      const fattyAcid = readOptNum('harvestFattyAcidInput');
+      const tasteLotNo = (document.getElementById('harvestTasteLotNoInput')?.value || '').trim();
+      const tasteOcrSource = document.getElementById('harvestTasteOcrSourceInput')?.value || 'manual';
       const wasteNote = wasteKg > 0 ? ` / 屑米 ${wasteKg}kg (${wasteRatePct.toFixed(1)}%)` : '';
 
       newLog.type = 'harvest';
@@ -1418,7 +1446,24 @@ function submitUnifiedWorkLog() {
       newLog.yieldTawara10a = Number(yieldTawara10a.toFixed(1));
       newLog.grade = grade;
       newLog.moisture = moist;
-      newLog.materialSummary = `玄米 ${currentHarvestBags}袋 (${harvTotalKg}kg)${wasteNote} / 反収 ${yieldTawara10a.toFixed(1)}俵/10a / 水分${moist}% / ${grade}`;
+      if (tasteScore !== null) newLog.tasteScore = tasteScore;
+      if (protein !== null) newLog.protein = protein;
+      if (wholeGrainRate !== null) newLog.wholeGrainRate = wholeGrainRate;
+      if (amylose !== null) newLog.amylose = amylose;
+      if (fattyAcid !== null) newLog.fattyAcid = fattyAcid;
+      if (tasteLotNo) newLog.tasteLotNo = tasteLotNo;
+      if (tasteScore !== null || protein !== null || wholeGrainRate !== null || amylose !== null) {
+        newLog.tasteOcrSource = tasteOcrSource;
+      }
+      const tasteStr = typeof formatTasteSummary_ === 'function' ? formatTasteSummary_(newLog) : '';
+      const tasteNote = tasteStr ? ` / ${tasteStr}` : '';
+      newLog.materialSummary = `玄米 ${currentHarvestBags}袋 (${harvTotalKg}kg)${wasteNote} / 反収 ${yieldTawara10a.toFixed(1)}俵/10a / 水分${moist}% / ${grade}${tasteNote}`;
+
+      ['harvestTasteScoreInput', 'harvestProteinInput', 'harvestWholeGrainInput', 'harvestAmyloseInput', 'harvestFattyAcidInput', 'harvestTasteLotNoInput'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      if (document.getElementById('harvestTasteOcrSourceInput')) document.getElementById('harvestTasteOcrSourceInput').value = 'manual';
     }
 
     applyLogResourceEffects_(newLog, +1);
