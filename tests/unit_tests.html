@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>らくらく営農日誌 Next - 自動テストスイート (RF-17)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 16px; background: #0f172a; color: #e2e8f0; }
+    .pass { color: #34d399; }
+    .fail { color: #f87171; font-weight: bold; }
+    pre { background: #1e293b; padding: 12px; border-radius: 8px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>自動テスト結果</h1>
+  <div id="summary">running...</div>
+  <pre id="results"></pre>
+  <iframe id="appFrame" style="width:1280px;height:800px;border:0;position:absolute;left:-9999px;"></iframe>
+
+  <script>
+    const results = [];
+    let passed = 0;
+    let failed = 0;
+
+    function assert(cond, msg) {
+      if (!cond) throw new Error(msg || 'Assertion failed');
+    }
+
+    function assertEqual(actual, expected, msg) {
+      if (actual !== expected) {
+        throw new Error(`${msg || 'assertEqual'}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+      }
+    }
+
+    function assertApprox(actual, expected, tol, msg) {
+      if (Math.abs(actual - expected) > tol) {
+        throw new Error(`${msg || 'assertApprox'}: expected ${expected} ± ${tol}, got ${actual}`);
+      }
+    }
+
+    function test(name, fn) {
+      try {
+        fn();
+        passed++;
+        results.push(`PASS: ${name}`);
+      } catch (e) {
+        failed++;
+        results.push(`FAIL: ${name} -> ${e.message}`);
+      }
+    }
+
+    function runTests(w) {
+      const doc = w.document;
+      // 1. ユーティリティテスト
+      test('escapeHtml escapes XSS characters', () => {
+        assertEqual(w.escapeHtml('<script>"a"&\'b\'<' + '/script>'), '&lt;script&gt;&quot;a&quot;&amp;&#39;b&#39;&lt;/script&gt;');
+      });
+
+      test('generateNextId increments and zero-pads', () => {
+        assertEqual(w.generateNextId('F', ['F01', 'F02', 'F09']), 'F10');
+        assertEqual(w.generateNextId('M', []), 'M01');
+      });
+
+      test('parseDelimitedText & toCsvCell handle quotes and commas', () => {
+        const csv = '\uFEFF"a,1",b\n"x""y",z';
+        const rows = w.parseDelimitedText(csv, ',');
+        assertEqual(rows.length, 2);
+        assertEqual(rows[0][0], 'a,1');
+        assertEqual(rows[1][0], 'x"y');
+        assertEqual(w.toCsvCell('a,b'), '"a,b"');
+      });
+
+      test('parseGoogleMapsCoords extracts coordinates from URL and raw text', () => {
+        const c1 = w.parseGoogleMapsCoords('https://maps.google.com/?q=!3d37.9161!4d139.0364');
+        assertApprox(c1.lat, 37.9161, 1e-5);
+        assertApprox(c1.lng, 139.0364, 1e-5);
+        const c2 = w.parseGoogleMapsCoords('37.9212, 139.0482');
+        assertApprox(c2.lat, 37.9212, 1e-5);
+      });
+
+      test('calcPolygonAreaStats computes positive area and centroid', () => {
+        const pts = [
+          [139.0360, 37.9160],
+          [139.0366, 37.9160],
+          [139.0366, 37.9165],
+          [139.0360, 37.9165]
+        ];
+        const stats = w.calcPolygonAreaStats(pts);
+        assert(stats.areaM2 > 2000 && stats.areaM2 < 4000, 'areaM2 in expected range');
+        assert(stats.areaA >= 20 && stats.areaA <= 40, 'areaA in expected range');
+      });
+
+      // 2. 農薬単位・安全チェックテスト
+      test('calcPesticideUnitQty handles liquid and granule formulations', () => {
+        const liq = w.calcPesticideUnitQty({ formulation: 'liquid', unitSizeMl: 500, stock: 4 }, 50, 1250);
+        assertEqual(liq.isLiquid, true);
+        assertEqual(liq.neededMl, 1250);
+        assertEqual(liq.qty, 3);
+
+        const gran = w.calcPesticideUnitQty({ formulation: 'granule', unitSizeKg: 3, rateKgPer10a: 1.0, stock: 5 }, 50, 0);
+        assertEqual(gran.isLiquid, false);
+        assertEqual(gran.neededKg, 5);
+        assertEqual(gran.qty, 2);
+      });
+
+      test('evaluatePesticideSafety_ detects active ingredient overuse and PHI violation', () => {
+        w.eval(`
+          pesticides = {
+            P1: { id: 'P1', name: 'テスト液剤', activeIngredient: '成分A', maxUse: 2, phiDays: 14, formulation: 'liquid', unitSizeMl: 500, stockMl: 2000 },
+            P2: { id: 'P2', name: 'テスト粒剤', activeIngredient: '成分A', maxUse: 2, phiDays: 7, formulation: 'granule', unitSizeKg: 3, stockKg: 9 }
+          };
+        `);
+        const fields = [
+          { id: 'F01', name: 'テスト田1', area: 30, harvest: '2026/09/10', pestCount: { P1: 1 }, ingredientCount: { '成分A': 2 } }
+        ];
+        const res1 = w.evaluatePesticideSafety_(fields, ['P1'], '2026-08-01');
+        assertEqual(res1.ok, false, 'ingredient overuse should fail');
+        assert(res1.overUseMessages.length > 0, 'overUseMessages should be populated');
+
+        const fieldsPhi = [
+          { id: 'F02', name: 'テスト田2', area: 20, harvest: '2026/09/10', pestCount: {}, ingredientCount: {} }
+        ];
+        const res2 = w.evaluatePesticideSafety_(fieldsPhi, ['P1'], '2026-09-01');
+        assertEqual(res2.ok, false, 'PHI < 14 days should fail');
+        assert(res2.phiMessages.length > 0, 'phiMessages should be populated');
+      });
+
+      // 3. 食味OCRパーサーテスト
+      test('parseTasteOcrText extracts meter and slip formats with full-width digits', () => {
+        const r1 = w.parseTasteOcrText('食味値：８４点 水分：１４．８％ タンパク：６．２％ 整粒歩合：84.5% アミロース：17.4% 脂肪酸度：13.6');
+        assertEqual(r1.tasteScore, 84);
+        assertEqual(r1.moisture, 14.8);
+        assertEqual(r1.protein, 6.2);
+        assertEqual(r1.wholeGrainRate, 84.5);
+        assertEqual(r1.amylose, 17.4);
+        assertEqual(r1.fattyAcid, 13.6);
+
+        const r2 = w.parseTasteOcrText('伝票番号: JA-2026-0921-12\n検査等級: 一等\n荷受袋数: 180袋\n水分: 14.6%\n食味値: 86');
+        assertEqual(r2.grade, '1等');
+        assertEqual(r2.harvestBags, 180);
+        assertEqual(r2.lotNo, 'JA-2026-0921-12');
+      });
+
+      // 4. 状態・作業登録・取消ロールバック・原価試算統合テスト
+      test('submitUnifiedWorkLog & removeWorkLog_ prorate and rollback cleanly', () => {
+        w.eval(`
+          fieldsData = [
+            { id: 'F01', name: '1号田', lot: 'A-1', area: 30, group: 'gps', crop: 'コシヒカリ', harvest: '2026/09/20', alerts: [] },
+            { id: 'F02', name: '2号田', lot: 'A-2', area: 20, group: 'gps', crop: 'コシヒカリ', harvest: '2026/09/20', alerts: [] }
+          ];
+          fertilizers = {
+            FT1: { id: 'FT1', name: 'オール14', unitKg: 20, n: 14, p: 14, k: 14, stock: 20, priceYen: 2500 }
+          };
+          pesticides = {};
+          machines = {
+            M01: { id: 'M01', name: 'トラクター', currentHour: 10, nextMaint: 50, hourlyCostYen: 2000 }
+          };
+          workLogs = [];
+          selectedFieldIds = ['F01', 'F02'];
+          currentDuration = 2.0;
+          currentBags = 10;
+          editingLogId = null;
+        `);
+        w.ensureFieldBaselines();
+        w.renderSelectOptions();
+        w.selectWorkCat('施肥');
+        doc.getElementById('machineSelect').value = 'M01';
+        doc.getElementById('fertilizerSelect').value = 'FT1';
+        w.submitUnifiedWorkLog();
+
+        const stateAfter = w.eval('({ logs: workLogs.length, stock: fertilizers.FT1.stock, hr: machines.M01.currentHour, n1: fieldsData[0].nPer10a, n2: fieldsData[1].nPer10a })');
+        assertEqual(stateAfter.logs, 1, '1 log added');
+        assertEqual(stateAfter.stock, 10, '10 bags deducted');
+        assertEqual(stateAfter.hr, 12, '2 hours added');
+        assertApprox(stateAfter.n1, 5.6, 0.01, 'N/10a = 40kg * 14% = 5.6');
+        assertApprox(stateAfter.n2, 5.6, 0.01, 'N/10a equal across fields');
+
+        const logId = w.eval('workLogs[0].id');
+        w.removeWorkLog_(logId);
+        const stateRollback = w.eval('({ logs: workLogs.length, stock: fertilizers.FT1.stock, hr: machines.M01.currentHour, n1: fieldsData[0].nPer10a })');
+        assertEqual(stateRollback.logs, 0, 'log removed');
+        assertEqual(stateRollback.stock, 20, 'stock restored');
+        assertEqual(stateRollback.hr, 10, 'machine hour restored');
+        assertEqual(stateRollback.n1, 0, 'N/10a restored');
+      });
+
+      // 5. 採算計算テスト
+      test('calcFieldProfitability computes revenue, cost, profit and rank', () => {
+        w.eval(`
+          workLogs = [];
+          costSettings = { hourlyWageYen: 1500, ricePricePerTawaraYen: 20000, wasteRicePricePerKgYen: 50 };
+        `);
+        const prof = w.calcFieldProfitability({ id: 'F99', area: 10, harvestKg: 540, wasteRiceKg: 0, nPer10a: 0, baseline: { nPer10a: 0, pestCount: {} } });
+        assertEqual(prof.grossRevenueYen, 180000, '9 tawara * 20000');
+        assertEqual(prof.profitPer10aYen, 180000);
+        assert(prof.profitRank.startsWith('S'), 'rank S for 180k/10a');
+      });
+
+      // 6. モーダル & UI操作テスト
+      test('Modal open/close & Tab switching work', () => {
+        w.switchMainTab('gis');
+        assert(!doc.getElementById('tab-gis').classList.contains('hidden'), 'tab-gis visible');
+        assert(doc.getElementById('tab-input').classList.contains('hidden'), 'tab-input hidden');
+        w.switchMainTab('input');
+        assert(!doc.getElementById('tab-input').classList.contains('hidden'), 'tab-input visible');
+
+        w.toggleUserManualModal(true);
+        assert(!doc.getElementById('userManualModal').classList.contains('hidden'), 'manual modal open');
+        w.toggleUserManualModal(false);
+        assert(doc.getElementById('userManualModal').classList.contains('hidden'), 'manual modal closed');
+
+        w.openTasteOcrModal();
+        assert(!doc.getElementById('tasteOcrModal').classList.contains('hidden'), 'ocr modal open');
+        w.closeTasteOcrModal();
+        assert(doc.getElementById('tasteOcrModal').classList.contains('hidden'), 'ocr modal closed');
+      });
+
+      test('RF-14: Zero inline handlers and event delegation works', () => {
+        const inlineCount = doc.querySelectorAll('[onclick],[onchange],[oninput]').length;
+        assertEqual(inlineCount, 0, 'no inline event attributes in DOM');
+
+        doc.getElementById('tabBtn-gis').click();
+        assert(!doc.getElementById('tab-gis').classList.contains('hidden'), 'delegated tab switch to gis');
+        doc.getElementById('tabBtn-input').click();
+        assert(!doc.getElementById('tab-input').classList.contains('hidden'), 'delegated tab switch to input');
+
+        const beforeBags = w.eval('currentBags');
+        const plusBtn = doc.querySelector('[data-action="adjustBags"][data-arg="1"]');
+        assert(plusBtn, 'adjustBags +1 button exists');
+        plusBtn.click();
+        assertEqual(w.eval('currentBags'), beforeBags + 1, 'delegated adjustBags incremented');
+      });
+
+      test('RF-15: safeHtml auto-escapes values while preserving rawHtml', () => {
+        const out = w.safeHtml`<div title="${'x"y'}">${'<img src=x onerror=alert(1)>'}${w.rawHtml('<span>ok</span>')}</div>`;
+        assertEqual(out, '<div title="x&quot;y">&lt;img src=x onerror=alert(1)&gt;<span>ok</span></div>');
+      });
+
+      test('RF-13: ModalManager opens, closes on backdrop click, and closes on Escape', () => {
+        const mm = w.eval('ModalManager');
+        mm.open('userManualModal');
+        assert(!doc.getElementById('userManualModal').classList.contains('hidden'), 'ModalManager opened manual');
+        doc.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape' }));
+        assert(doc.getElementById('userManualModal').classList.contains('hidden'), 'Escape closed modal');
+      });
+
+      document.getElementById('summary').textContent = `TOTAL: ${passed + failed} | PASS: ${passed} | FAIL: ${failed}`;
+      document.getElementById('summary').className = failed === 0 ? 'pass' : 'fail';
+      document.getElementById('results').textContent = results.join('\n');
+      document.body.dataset.testDone = 'true';
+    }
+
+    window.onerror = (msg) => {
+      document.getElementById('summary').textContent = 'JS ERROR: ' + msg;
+    };
+    const frame = document.getElementById('appFrame');
+    let started = false;
+    function startOnce() {
+      if (started) return;
+      const w = frame.contentWindow;
+      if (!w || typeof w.initApp !== 'function') {
+        document.getElementById('summary').textContent = 'WAIT: initApp=' + (w ? typeof w.initApp : 'no-win');
+        return;
+      }
+      started = true;
+      try {
+        runTests(w);
+      } catch (e) {
+        document.getElementById('summary').textContent = 'RUNNER ERROR: ' + e.message;
+      }
+    }
+    frame.addEventListener('load', () => setTimeout(startOnce, 100));
+    const target = new URLSearchParams(location.search).get('target') || '../index.html';
+    frame.src = target;
+  </script>
+</body>
+</html>

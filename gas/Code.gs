@@ -762,7 +762,16 @@ function doPost(e) {
           ? `[${item.weather}${weatherDetails.length > 0 ? ` ${weatherDetails.join(' / ')}` : ''}] `
           : '';
         const memoSuffix = item.memo ? ` ／ 📔${item.memo}` : '';
-        const combinedNotes = `${weatherPrefix}${item.materialSummary || ''}${memoSuffix}`;
+        const tasteParts = [];
+        if (item.tasteScore !== undefined && item.tasteScore !== null && item.tasteScore !== '') tasteParts.push('食味' + item.tasteScore + '点');
+        if (item.protein !== undefined && item.protein !== null && item.protein !== '') tasteParts.push('タンパク' + item.protein + '%');
+        if (item.wholeGrainRate !== undefined && item.wholeGrainRate !== null && item.wholeGrainRate !== '') tasteParts.push('整粒' + item.wholeGrainRate + '%');
+        if (item.amylose !== undefined && item.amylose !== null && item.amylose !== '') tasteParts.push('アミロース' + item.amylose + '%');
+        if (item.fattyAcid !== undefined && item.fattyAcid !== null && item.fattyAcid !== '') tasteParts.push('脂肪酸度' + item.fattyAcid);
+        if (item.tasteLotNo) tasteParts.push('伝票:' + item.tasteLotNo);
+        const baseSummary = String(item.materialSummary || '');
+        const tasteSuffix = (tasteParts.length > 0 && baseSummary.indexOf('食味') === -1) ? (' [' + tasteParts.join(' / ') + ']') : '';
+        const combinedNotes = `${weatherPrefix}${baseSummary}${tasteSuffix}${memoSuffix}`;
         newLogRows.push([
           logId,
           item.date,

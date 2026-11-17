@@ -330,15 +330,21 @@ function loadTasteOcrSample(kind) {
 // モーダルUI制御・フォーム反映
 // =========================================================================
 function openTasteOcrModal() {
-  const modal = document.getElementById('tasteOcrModal');
-  if (!modal) return;
-  modal.classList.remove('hidden');
+  if (typeof ModalManager !== 'undefined') {
+    ModalManager.open('tasteOcrModal');
+  } else {
+    document.getElementById('tasteOcrModal')?.classList.remove('hidden');
+  }
   updateTasteOcrModeBadge_();
   renderTasteOcrPreview_();
 }
 
 function closeTasteOcrModal() {
-  document.getElementById('tasteOcrModal')?.classList.add('hidden');
+  if (typeof ModalManager !== 'undefined') {
+    ModalManager.close('tasteOcrModal');
+  } else {
+    document.getElementById('tasteOcrModal')?.classList.add('hidden');
+  }
 }
 
 function updateTasteOcrModeBadge_() {
