@@ -243,6 +243,65 @@
         assert(doc.getElementById('userManualModal').classList.contains('hidden'), 'Escape closed modal');
       });
 
+      test('PhotoGPS: parseExifGpsFromBuffer and matchFieldByGpsCoord (polygon & nearest)', () => {
+        // 最小JPEG + APP1 Exif (Little-Endian) バイナリを組み立てて検証
+        // 北緯 37度55分0秒 (37.916667), 東経 139度2分15秒 (139.0375)
+        const buf = new ArrayBuffer(256);
+        const v = new DataView(buf);
+        v.setUint16(0, 0xFFD8, false); // SOI
+        v.setUint16(2, 0xFFE1, false); // APP1
+        v.setUint16(4, 240, false);    // length
+        // "Exif\0\0"
+        [0x45, 0x78, 0x69, 0x66, 0x00, 0x00].forEach((b, i) => v.setUint8(6 + i, b));
+        const tiff = 12;
+        v.setUint16(tiff, 0x4949, false); // 'II' Little Endian
+        v.setUint16(tiff + 2, 42, true);
+        v.setUint32(tiff + 4, 8, true);   // IFD0 offset
+
+        // IFD0: 1 entry -> GPSInfoIFDPointer (0x8825) at tiff+8
+        const ifd0 = tiff + 8;
+        v.setUint16(ifd0, 1, true);
+        v.setUint16(ifd0 + 2, 0x8825, true);
+        v.setUint16(ifd0 + 4, 4, true); // LONG
+        v.setUint32(ifd0 + 6, 1, true);
+        v.setUint32(ifd0 + 10, 26, true); // GPS IFD offset = 26
+
+        // GPS IFD at tiff+26: 4 entries (LatRef, Lat, LngRef, Lng)
+        const gps = tiff + 26;
+        v.setUint16(gps, 4, true);
+        // 1: GPSLatitudeRef = 'N'
+        v.setUint16(gps + 2, 1, true); v.setUint16(gps + 4, 2, true); v.setUint32(gps + 6, 2, true);
+        v.setUint8(gps + 10, 78); v.setUint8(gps + 11, 0);
+        // 2: GPSLatitude (3 rationals at tiff+80)
+        v.setUint16(gps + 14, 2, true); v.setUint16(gps + 16, 5, true); v.setUint32(gps + 18, 3, true);
+        v.setUint32(gps + 22, 80, true);
+        // 3: GPSLongitudeRef = 'E'
+        v.setUint16(gps + 26, 3, true); v.setUint16(gps + 28, 2, true); v.setUint32(gps + 30, 2, true);
+        v.setUint8(gps + 34, 69); v.setUint8(gps + 35, 0);
+        // 4: GPSLongitude (3 rationals at tiff+104)
+        v.setUint16(gps + 38, 4, true); v.setUint16(gps + 40, 5, true); v.setUint32(gps + 42, 3, true);
+        v.setUint32(gps + 46, 104, true);
+
+        // Lat = 37, 55, 0
+        v.setUint32(tiff + 80, 37, true); v.setUint32(tiff + 84, 1, true);
+        v.setUint32(tiff + 88, 55, true); v.setUint32(tiff + 92, 1, true);
+        v.setUint32(tiff + 96, 0, true); v.setUint32(tiff + 100, 1, true);
+        // Lng = 139, 2, 15
+        v.setUint32(tiff + 104, 139, true); v.setUint32(tiff + 108, 1, true);
+        v.setUint32(tiff + 112, 2, true); v.setUint32(tiff + 116, 1, true);
+        v.setUint32(tiff + 120, 15, true); v.setUint32(tiff + 124, 1, true);
+
+        const parsed = w.parseExifGpsFromBuffer(buf);
+        assert(parsed.hasGps, 'EXIF GPS parsed');
+        assertApprox(parsed.lat, 37.916667, 0.0001, 'latitude parsed');
+        assertApprox(parsed.lng, 139.0375, 0.0001, 'longitude parsed');
+
+        // ポリゴン内判定の検証
+        const poly = [[37.916, 139.037], [37.917, 139.037], [37.917, 139.038], [37.916, 139.038]];
+        assert(w.isPointInPolygon_(parsed.lat, parsed.lng, poly), 'point inside polygon');
+        assert(!w.isPointInPolygon_(37.920, 139.040, poly), 'point outside polygon');
+      });
+
       document.getElementById('summary').textContent = `TOTAL: ${passed + failed} | PASS: ${passed} | FAIL: ${failed}`;
       document.getElementById('summary').className = failed === 0 ? 'pass' : 'fail';
       document.getElementById('results').textContent = results.join('\n');

@@ -147,6 +147,14 @@ const ACTION_HANDLERS = {
   reparseTasteRawText: () => reparseTasteRawText(),
   applyTasteOcrToHarvestForm: () => applyTasteOcrToHarvestForm(),
   handleTasteImageSelect: (el, ev) => handleTasteImageSelect(ev),
+  openPhotoGpsModal: () => openPhotoGpsModal(),
+  closePhotoGpsModal: () => closePhotoGpsModal(),
+  handlePhotoGpsFileSelect: (el, ev) => handlePhotoGpsFileSelect(ev),
+  applyPhotoGpsFieldsToInput: () => applyPhotoGpsFieldsToInput(),
+  showPhotoGpsOnGisMap: () => showPhotoGpsOnGisMap(),
+  inspectMatchedFieldFromPhoto: (el) => inspectMatchedFieldFromPhoto(el.dataset.arg),
+  createNewFieldFromPhotoCluster: (el) => createNewFieldFromPhotoCluster(el.dataset.arg),
+  clearPhotoGpsResults: () => clearPhotoGpsResults(),
   closeModalOnBackdrop: (el, ev) => {
     if (ev.target === el) ModalManager.close(el.id);
   }

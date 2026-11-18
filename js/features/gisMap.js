@@ -286,6 +286,39 @@ function renderLeafletFieldMap_(target) {
     }).bindTooltip('🆕 新規登録位置', { permanent: true, direction: 'top' }).addTo(layerGroup);
   }
 
+  // アップロード済みGPS写真ピンの描画（Tab 2 GISマップ / Tab 1 マップ共通）
+  if ((target === 'gis' || target === 'input') && Array.isArray(window._uploadedGeoPhotos) && window._uploadedGeoPhotos.length > 0) {
+    const geoPhotos = window._uploadedGeoPhotos.filter(p => p.hasGps && p.lat !== null && p.lng !== null);
+    geoPhotos.forEach(p => {
+      const thumbImg = p.thumbUrl
+        ? `<img src="${escapeHtml(p.thumbUrl)}" alt="" style="width:120px;height:80px;object-fit:cover;border-radius:6px;margin-bottom:4px;">`
+        : '';
+      const matchTxt = p.matchedFieldName
+        ? `判別: <b>${escapeHtml(p.matchedFieldName)}</b> (${p.inPolygon ? '圃場内確定' : `${p.distM}m`})`
+        : '未登録エリア';
+      const popupHtml = `
+        <div style="font-size:11px;line-height:1.4;min-width:130px;">
+          ${thumbImg}
+          <div><b>📷 ${escapeHtml(p.filename)}</b></div>
+          <div>${matchTxt}</div>
+          ${p.takenAt ? `<div style="color:#64748b;">${escapeHtml(p.takenAt)}</div>` : ''}
+        </div>
+      `;
+      L.circleMarker([p.lat, p.lng], {
+        radius: 7,
+        color: '#ffffff',
+        weight: 2,
+        fillColor: '#4f46e5',
+        fillOpacity: 0.95
+      }).bindTooltip(`📷 ${escapeHtml(p.filename)}`, { direction: 'top' })
+        .bindPopup(popupHtml)
+        .addTo(layerGroup);
+    });
+    if (target === 'gis' && geoPhotos.length > 0 && fieldsData.length === 0) {
+      map.setView([geoPhotos[0].lat, geoPhotos[0].lng], 16);
+    }
+  }
+
   setTimeout(() => { map.invalidateSize(); }, 80);
 }
 
