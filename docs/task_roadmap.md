@@ -79,8 +79,8 @@ flowchart LR
 | `[x]` | **`TSK-016`** | `CAT-02`<br>PWAフロント | `TYP-ENH`<br>機能改善 | **高** | **JSONバックアップファイルの「復元（インポート）」ボタンの実装**<br>「全データをJSONバックアップ保存」で出力したJSONファイルを読み込み、端末間移行やデータ復元を完結させる。（実装完了 ✅） | `index.html`, `js/app.js` |
 | `[x]` | **`TSK-017`** | `CAT-02`<br>PWAフロント | `TYP-ENH`<br>機能改善 | **中** | **「新規農薬マスタ」「新規機械マスタ」の画面上からの追加登録フォーム実装**<br>既存の圃場・肥料追加フォームに加え、現場で新しい農薬（登録番号・PHI・使用回数上限）や農機具を追加できるようにする。（実装完了 ✅） | `index.html`, `js/app.js` |
 | `[x]` | **`TSK-018`** | `CAT-03`<br>GIS・GPS連携 | `TYP-ENH`<br>機能改善 | **中** | **新規追加・他社移行圃場（GeoJSON等）のSVGマップ動的ポリゴン/ピン描画 ＆「収穫」ヒートマップ追加**<br>`F01`〜`F07`以外の追加圃場もマップ上に視覚表示し、ID採番を2桁ゼロ埋め（`F08`, `F09`, `F10`）に統一する。（実装完了 ✅） | `index.html`, `js/app.js` |
-| `[ ]` | **`TSK-019`** | `CAT-06`<br>GASバックエンド | `TYP-ENH`<br>機能改善 | **中** | **GAS `processPendingLogs()` のバッチ書き込み高速化 ＆ `doPost` 重複排除・`doGet` マスタ取得実装**<br>セル単位の `setValue` を配列一括更新（`setValues`）に最適化し、未同期0件時の重複送信防止とクラウドからのマスタ取得を実装する。 | `gas/Code.gs`,<br>`index.html` |
-| `[ ]` | **`TSK-020`** | `CAT-02`<br>PWAフロント | `TYP-ENH`<br>機能改善 | **低** | **データの大量蓄積に備えた `localStorage` から `IndexedDB` へのストレージ拡張**<br>数年分の作業履歴や複雑なGeoJSONポリゴン座標を保存しても容量制限（5MB）に達しないよう永続化層を拡張する。 | `index.html` |
+| `[x]` | **`TSK-019`** | `CAT-06`<br>GASバックエンド | `TYP-ENH`<br>機能改善 | **中** | **GAS `processPendingLogs()` のバッチ書き込み高速化 ＆ `doPost` 重複排除・`doGet` マスタ取得実装**<br>セル単位の `setValue` を配列一括更新（`setValues`）に最適化し、未同期0件時の重複送信防止とクラウドからのマスタ取得を実装する。（実装完了 ✅） | `gas/Code.gs`,<br>`js/features/syncAndMigration.js` |
+| `[x]` | **`TSK-020`** | `CAT-02`<br>PWAフロント | `TYP-ENH`<br>機能改善 | **低** | **データの大量蓄積に備えた `localStorage` から `IndexedDB` へのストレージ拡張**<br>数年分の作業履歴や複雑なGeoJSONポリゴン座標を保存しても容量制限（5MB）に達しないよう永続化層を拡張する。（実装完了 ✅） | `js/storage.js`, `js/app.js` |
 
 #### 1-B. 実帳票フォーマット照合・現地フィールド検証（運用・テスト系ToDo）
 | 状態 | タスクID | カテゴリーID | 種類ID | 優先度 | タスク名称・実施内容 | 対象・担当 |

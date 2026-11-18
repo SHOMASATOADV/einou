@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rakuraku-einou-pwa-v12';
+const CACHE_NAME = 'rakuraku-einou-pwa-v13';
 // 航空写真タイル専用キャッシュ（上限件数を超えたら古い順に削除して肥大化を防ぐ）
 const TILE_CACHE_NAME = 'rakuraku-einou-tiles-v1';
 const TILE_CACHE_MAX_ENTRIES = 600;

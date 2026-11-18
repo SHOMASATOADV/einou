@@ -42,8 +42,134 @@ Object.keys(UiState).forEach((k) => {
 });
 
 // =========================================================================
-// LocalStorage 永続化エンジン
+// IndexedDB + LocalStorage ハイブリッド永続化エンジン (TSK-020)
 // =========================================================================
+const IDB_NAME = 'rakuraku_einou_db';
+const IDB_VERSION = 1;
+const IDB_STORE_NAME = 'app_state';
+const IDB_STATE_KEY = 'main_state';
+
+let _idbAvailable = null;
+let _idbWriteQueue = Promise.resolve();
+let _lastStorageBackend = 'localStorage';
+
+function openEinouDb_() {
+  return new Promise((resolve) => {
+    if (typeof indexedDB === 'undefined') {
+      _idbAvailable = false;
+      resolve(null);
+      return;
+    }
+    try {
+      const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+      req.onupgradeneeded = (ev) => {
+        const db = ev.target.result;
+        if (!db.objectStoreNames.contains(IDB_STORE_NAME)) {
+          db.createObjectStore(IDB_STORE_NAME);
+        }
+      };
+      req.onsuccess = (ev) => {
+        _idbAvailable = true;
+        resolve(ev.target.result);
+      };
+      req.onerror = () => {
+        _idbAvailable = false;
+        resolve(null);
+      };
+      req.onblocked = () => {
+        resolve(null);
+      };
+    } catch (e) {
+      _idbAvailable = false;
+      resolve(null);
+    }
+  });
+}
+
+async function idbGetState_(key = IDB_STATE_KEY) {
+  const db = await openEinouDb_();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE_NAME, 'readonly');
+      const store = tx.objectStore(IDB_STORE_NAME);
+      const req = store.get(key);
+      req.onsuccess = () => {
+        db.close();
+        resolve(req.result || null);
+      };
+      req.onerror = () => {
+        db.close();
+        resolve(null);
+      };
+    } catch (e) {
+      try { db.close(); } catch (_) {}
+      resolve(null);
+    }
+  });
+}
+
+async function idbSetState_(val, key = IDB_STATE_KEY) {
+  const db = await openEinouDb_();
+  if (!db) return false;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE_NAME, 'readwrite');
+      const store = tx.objectStore(IDB_STORE_NAME);
+      store.put(val, key);
+      tx.oncomplete = () => {
+        db.close();
+        _lastStorageBackend = 'IndexedDB';
+        resolve(true);
+      };
+      tx.onerror = () => {
+        db.close();
+        resolve(false);
+      };
+    } catch (e) {
+      try { db.close(); } catch (_) {}
+      resolve(false);
+    }
+  });
+}
+
+async function idbDeleteState_(key = IDB_STATE_KEY) {
+  const db = await openEinouDb_();
+  if (!db) return false;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE_NAME, 'readwrite');
+      const store = tx.objectStore(IDB_STORE_NAME);
+      store.delete(key);
+      tx.oncomplete = () => {
+        db.close();
+        resolve(true);
+      };
+      tx.onerror = () => {
+        db.close();
+        resolve(false);
+      };
+    } catch (e) {
+      try { db.close(); } catch (_) {}
+      resolve(false);
+    }
+  });
+}
+
+function getPersistPayload_() {
+  return {
+    fieldsData,
+    fertilizers,
+    pesticides,
+    machines,
+    costSettings,
+    workLogs,
+    gasWebhookUrl,
+    gasSyncToken,
+    _savedAt: new Date().toISOString()
+  };
+}
+
 function applyParsedState_(parsed) {
   const def = JSON.parse(JSON.stringify(DEFAULT_STATE));
   fieldsData = Array.isArray(parsed.fieldsData) ? parsed.fieldsData : def.fieldsData;
@@ -104,32 +230,107 @@ function loadStateFromStorage() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       applyParsedState_(JSON.parse(raw));
+      _lastStorageBackend = 'localStorage';
       return;
     }
   } catch (e) {}
   applyParsedState_(JSON.parse(JSON.stringify(DEFAULT_STATE)));
 }
 
-function saveStateToStorage() {
+/**
+ * IndexedDB から大容量データを非同期ロード（未移行時は localStorage から自動マイグレーション）
+ * @return {Promise<boolean>} IndexedDB からの復元が行われた場合 true
+ */
+async function loadStateFromStorageAsync() {
+  const idbData = await idbGetState_(IDB_STATE_KEY);
+  if (idbData && (Array.isArray(idbData.fieldsData) || Array.isArray(idbData.workLogs))) {
+    applyParsedState_(idbData);
+    _lastStorageBackend = 'IndexedDB';
+    return true;
+  }
+
+  // IndexedDB が空の場合、既存の localStorage データを IndexedDB へ自動移行
+  let migratedSource = null;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      fieldsData,
-      fertilizers,
-      pesticides,
-      machines,
-      costSettings,
-      workLogs,
-      gasWebhookUrl,
-      gasSyncToken
-    }));
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) migratedSource = JSON.parse(raw);
+  } catch (e) {}
+
+  if (migratedSource) {
+    applyParsedState_(migratedSource);
+    await idbSetState_(getPersistPayload_(), IDB_STATE_KEY);
+    return true;
+  }
+
+  // 新規状態も IndexedDB に保存しておく
+  if (_idbAvailable !== false) {
+    await idbSetState_(getPersistPayload_(), IDB_STATE_KEY);
+  }
+  return false;
+}
+
+function enqueueIdbSave_(payload) {
+  _idbWriteQueue = _idbWriteQueue
+    .then(() => idbSetState_(payload, IDB_STATE_KEY))
+    .then((ok) => {
+      if (ok && typeof updateStorageInfoBadge === 'function') {
+        updateStorageInfoBadge();
+      }
+      return ok;
+    })
+    .catch(() => false);
+  return _idbWriteQueue;
+}
+
+function saveStateToStorage() {
+  const payload = getPersistPayload_();
+  let lsSaved = false;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    lsSaved = true;
   } catch (e) {
-    if (typeof showToast === 'function') {
+    lsSaved = false;
+  }
+
+  // IndexedDB へ非同期永続化（5MB上限を超える大容量データでも確実に保持）
+  enqueueIdbSave_(payload).then((idbOk) => {
+    if (!lsSaved && !idbOk && typeof showToast === 'function') {
       showToast(
-        '⚠️ 端末内ストレージ（localStorage）の保存上限に達しました',
+        '⚠️ 端末内ストレージの保存上限に達しました',
         'データが失われないよう、タブ5「他社データ移行・設定」から「JSONバックアップを保存」してください。'
       );
     }
-  }
+  });
+
   if (typeof updateSyncBadge === 'function') updateSyncBadge();
+  if (typeof updateStorageInfoBadge === 'function') updateStorageInfoBadge();
+}
+
+async function clearStorageAsync() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  await _idbWriteQueue.catch(() => {});
+  await idbDeleteState_(IDB_STATE_KEY);
+}
+
+async function getStorageStatsAsync() {
+  const payload = getPersistPayload_();
+  const jsonStr = JSON.stringify(payload);
+  const bytes = new Blob([jsonStr]).size;
+  const polygonPts = (fieldsData || []).reduce((sum, f) => {
+    return sum + (Array.isArray(f.polygonCoords) ? f.polygonCoords.length : 0);
+  }, 0);
+  if (_idbAvailable === null) {
+    const db = await openEinouDb_();
+    if (db) db.close();
+  }
+  return {
+    backend: _idbAvailable ? 'IndexedDB + localStorage (自動切替対応)' : 'localStorage',
+    idbEnabled: Boolean(_idbAvailable),
+    bytes,
+    kb: Math.round((bytes / 1024) * 10) / 10,
+    fieldCount: (fieldsData || []).length,
+    workLogCount: (workLogs || []).length,
+    polygonPts
+  };
 }
 

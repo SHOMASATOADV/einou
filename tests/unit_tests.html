@@ -302,6 +302,16 @@
         assert(!w.isPointInPolygon_(37.920, 139.040, poly), 'point outside polygon');
       });
 
+      test('TSK-019 & TSK-020: GAS doGet sync & IndexedDB storage API exist', () => {
+        assertEqual(typeof w.syncFromGasBackend, 'function', 'syncFromGasBackend exists');
+        assertEqual(typeof w.loadStateFromStorageAsync, 'function', 'loadStateFromStorageAsync exists');
+        assertEqual(typeof w.getStorageStatsAsync, 'function', 'getStorageStatsAsync exists');
+        assertEqual(typeof w.clearStorageAsync, 'function', 'clearStorageAsync exists');
+        const payload = w.getPersistPayload_();
+        assert(Array.isArray(payload.fieldsData), 'payload has fieldsData');
+        assert(Array.isArray(payload.workLogs), 'payload has workLogs');
+      });
+
       document.getElementById('summary').textContent = `TOTAL: ${passed + failed} | PASS: ${passed} | FAIL: ${failed}`;
       document.getElementById('summary').className = failed === 0 ? 'pass' : 'fail';
       document.getElementById('results').textContent = results.join('\n');

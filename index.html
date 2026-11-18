@@ -1474,9 +1474,12 @@
         <label class="block text-xs font-bold mb-1">同期用トークン（GASのスクリプトプロパティ <code class="px-1 rounded bg-[var(--secondary)]">SYNC_TOKEN</code> と同じ値）</label>
         <input type="password" id="gasSyncToken" data-change="saveGasUrl" autocomplete="off" placeholder="例: 英数字20文字以上のランダムな文字列" class="w-full px-3 py-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] text-xs mb-1">
         <p class="text-[11px] text-[var(--muted-foreground)] mb-3">URLを知っている第三者による不正な書き込みを防ぐため、GAS側でトークンを照合します。トークンはJSONバックアップには含まれません。</p>
-        <div class="flex gap-2">
-          <button data-action="syncWithGasBackend" class="flex-1 py-2.5 rounded-xl bg-sky-600 text-white font-bold text-xs hover:bg-sky-700 transition">
-            ☁️ 今すぐスプレッドシートへ同期送信
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <button data-action="syncWithGasBackend" class="py-2.5 px-3 rounded-xl bg-sky-600 text-white font-bold text-xs hover:bg-sky-700 transition">
+            ☁️ 今すぐスプレッドシートへ同期送信 (doPost)
+          </button>
+          <button data-action="syncFromGasBackend" class="py-2.5 px-3 rounded-xl border border-sky-500/40 bg-sky-500/10 text-sky-700 font-bold text-xs hover:bg-sky-500/20 transition">
+            ⬇️ スプレッドシートから最新マスタを取得 (doGet)
           </button>
         </div>
       </div>
@@ -1515,10 +1518,16 @@
       </div>
 
       <div class="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm">
-        <h2 class="text-base font-bold text-[var(--foreground)] mb-1">💾 端末内データのバックアップ・初期化</h2>
-        <p class="text-xs text-[var(--muted-foreground)] mb-4">
-          現在のすべてのデータ（圃場・資材在庫・機械アワー・作業日誌）はブラウザの <code class="px-1 py-0.5 rounded bg-[var(--secondary)]">localStorage</code> に自動保存されています。PC故障や機種変更時もJSONファイルで丸ごとバックアップ・復元できます。
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="text-base font-bold text-[var(--foreground)]">💾 端末内データのバックアップ・大容量ストレージ状態</h2>
+          <span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-600 text-[11px] font-bold">IndexedDB拡張対応</span>
+        </div>
+        <p class="text-xs text-[var(--muted-foreground)] mb-2">
+          現在のすべてのデータ（圃場・GeoJSONポリゴン・資材在庫・機械アワー・数年分の作業日誌）はブラウザの大容量 <code class="px-1 py-0.5 rounded bg-[var(--secondary)]">IndexedDB</code>（＋<code class="px-1 py-0.5 rounded bg-[var(--secondary)]">localStorage</code> フォールバック）に自動保存されています。
         </p>
+        <div id="storageStatusBadge" class="mb-4 px-3 py-2 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] text-[11px] font-mono">
+          ストレージ状態計測中...
+        </div>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
           <button data-action="exportFullBackupJson" class="py-2.5 px-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] font-bold text-xs hover:opacity-90">
             📥 JSONバックアップ保存

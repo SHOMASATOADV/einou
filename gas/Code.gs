@@ -455,6 +455,7 @@ function refreshA4ReportSheet() {
 
   let rowCursor = 7;
   let weightedNTotalKg = 0, weightedPTotalKg = 0, weightedKTotalKg = 0;
+  const fertRows = [];
 
   for (let i = 1; i < logs.length; i++) {
     const l = logs[i];
@@ -483,11 +484,15 @@ function refreshA4ReportSheet() {
       weightedKTotalKg += k10 * (matchedAreaA / 10.0);
 
       const matchedNames = matchedFields.map(f => f.name).join('・');
-      repSheet.getRange(rowCursor, 1, 1, 10).setValues([[
+      fertRows.push([
         l[1], matchedNames, matchedAreaA, matName, npkStr, allocKg, per10a, n10, p10, k10
-      ]]).setBorder(true, true, true, true, true, true);
-      rowCursor++;
+      ]);
     }
+  }
+
+  if (fertRows.length > 0) {
+    repSheet.getRange(rowCursor, 1, fertRows.length, 10).setValues(fertRows).setBorder(true, true, true, true, true, true);
+    rowCursor += fertRows.length;
   }
 
   // 対象圃場全体での10aあたり面積加重平均の作期累計成分量
@@ -507,6 +512,7 @@ function refreshA4ReportSheet() {
   repSheet.getRange(rowCursor, 1, 1, pestHeader.length).setValues([pestHeader]).setFontWeight('bold').setBackground('#f1f5f9').setBorder(true, true, true, true, true, true);
   rowCursor++;
 
+  const pestRows = [];
   for (let i = 1; i < logs.length; i++) {
     const l = logs[i];
     if (l[2] === '防除') {
@@ -525,12 +531,15 @@ function refreshA4ReportSheet() {
       idsToRender.forEach((pid, pIdx) => {
         const m = matLookup[pid] || [];
         const mixBadge = idsToRender.length > 1 ? ` [混用${pIdx + 1}]` : '';
-        repSheet.getRange(rowCursor, 1, 1, 10).setValues([[
+        pestRows.push([
           l[1], matchedNames, matchedAreaA, (m[2] || pid) + mixBadge, m[3] || '-', m[4] || '-', l[11], allocWaterL, `${l[9]}本`, '適（基準内）'
-        ]]).setBorder(true, true, true, true, true, true);
-        rowCursor++;
+        ]);
       });
     }
+  }
+
+  if (pestRows.length > 0) {
+    repSheet.getRange(rowCursor, 1, pestRows.length, 10).setValues(pestRows).setBorder(true, true, true, true, true, true);
   }
 
   repSheet.autoResizeColumns(1, 10);
@@ -693,16 +702,8 @@ function doPost(e) {
   const lock = LockService.getScriptLock();
   try {
     const payload = JSON.parse(e.postData.contents);
-
-    // 認証：スクリプトプロパティ SYNC_TOKEN と一致しない送信は拒否する（未設定時も拒否＝フェイルクローズ）
-    // 設定方法：Apps Scriptエディタ →「プロジェクトの設定」→「スクリプト プロパティ」に SYNC_TOKEN を追加
-    const expectedToken = PropertiesService.getScriptProperties().getProperty('SYNC_TOKEN');
-    if (!expectedToken) {
-      return jsonResponse_({ status: 'error', message: 'GAS側でスクリプトプロパティ SYNC_TOKEN が未設定です。設定後に再度同期してください。' });
-    }
-    if (!timingSafeEqual_(String(payload.token || ''), expectedToken)) {
-      return jsonResponse_({ status: 'error', message: '同期用トークンが一致しません。アプリの設定画面のトークンを確認してください。' });
-    }
+    const authErr = verifySyncToken_(payload && payload.token);
+    if (authErr) return jsonResponse_({ status: 'error', message: authErr });
 
     // 同時送信（複数スマホ）による二重登録を防ぐため排他ロック
     lock.waitLock(30000);
@@ -712,6 +713,7 @@ function doPost(e) {
     const fieldsSheet = ss.getSheetByName(SHEET_NAMES.FIELDS);
 
     // 新規移行された圃場があれば M_FIELDS にも追加（既存IDはスキップ）
+    let insertedFieldsCount = 0;
     if (payload.fields && Array.isArray(payload.fields) && fieldsSheet) {
       const existingIdSet = {};
       fieldsSheet.getDataRange().getValues().slice(1).forEach(r => { existingIdSet[String(r[0]).trim()] = true; });
@@ -728,13 +730,14 @@ function doPost(e) {
       });
       if (newFieldRows.length > 0) {
         fieldsSheet.getRange(fieldsSheet.getLastRow() + 1, 1, newFieldRows.length, newFieldRows[0].length).setValues(newFieldRows);
+        insertedFieldsCount = newFieldRows.length;
       }
     }
 
     // 作業日誌の受信（work_log_id による重複排除 → 何度再送しても二重計上されない＝べき等）
     const insertedIds = [];
     const skippedIds = [];
-    if (payload.logs && Array.isArray(payload.logs)) {
+    if (payload.logs && Array.isArray(payload.logs) && payload.logs.length > 0) {
       const existingLogIdSet = {};
       logSheet.getDataRange().getValues().slice(1).forEach(r => { existingLogIdSet[String(r[0]).trim()] = true; });
 
@@ -801,20 +804,163 @@ function doPost(e) {
     }
     lock.releaseLock();
 
-    if (insertedIds.length > 0) refreshA4ReportSheet();
+    if (insertedIds.length > 0 || insertedFieldsCount > 0) refreshA4ReportSheet();
 
-    return ContentService.createTextOutput(JSON.stringify({
+    return jsonResponse_({
       status: 'ok',
       syncedCount: insertedIds.length,
       skippedCount: skippedIds.length,
+      insertedFieldsCount: insertedFieldsCount,
       // PWA側はこのIDだけを「同期済」にする（新規登録＋既に登録済み）
       acceptedIds: insertedIds.concat(skippedIds)
-    })).setMimeType(ContentService.MimeType.JSON);
+    });
   } catch (err) {
     try { lock.releaseLock(); } catch (e2) {}
-    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() }))
-      .setMimeType(ContentService.MimeType.JSON);
+    return jsonResponse_({ status: 'error', message: err.toString() });
   }
+}
+
+/**
+ * 7. スマホPWAアプリからのGETリクエスト（クラウド上の最新マスタ取得 API）
+ *    クエリパラメータ: ?token=SYNC_TOKEN&action=masters
+ */
+function doGet(e) {
+  try {
+    const params = (e && e.parameter) ? e.parameter : {};
+    const authErr = verifySyncToken_(params.token);
+    if (authErr) return jsonResponse_({ status: 'error', message: authErr });
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const fieldsSheet = ss.getSheetByName(SHEET_NAMES.FIELDS);
+    const matSheet = ss.getSheetByName(SHEET_NAMES.MATERIALS);
+    const machSheet = ss.getSheetByName(SHEET_NAMES.MACHINES);
+
+    const fields = [];
+    if (fieldsSheet && fieldsSheet.getLastRow() > 1) {
+      const rows = fieldsSheet.getDataRange().getValues();
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        const fid = String(r[0] || '').trim();
+        if (!fid) continue;
+        fields.push({
+          id: fid,
+          name: String(r[2] || fid),
+          lot: String(r[3] || '-'),
+          groupName: String(r[4] || ''),
+          group: String(r[4] || '').includes('山') ? 'yama' : (String(r[4] || '').includes('川') ? 'kawa' : 'honba'),
+          area: Number(r[5] || 20),
+          crop: String(r[6] || 'コシヒカリ(BL)'),
+          harvest: formatDateValue_(r[7]) || '2026/09/20',
+          stage: String(r[8] || '未着手'),
+          lat: Number(r[9] || 37.9165),
+          lng: Number(r[10] || 139.0370),
+          nPer10a: Number(r[11] || 0),
+          pPer10a: Number(r[12] || 0),
+          kPer10a: Number(r[13] || 0)
+        });
+      }
+    }
+
+    const fertilizers = {};
+    const pesticides = {};
+    if (matSheet && matSheet.getLastRow() > 1) {
+      const rows = matSheet.getDataRange().getValues();
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        const mid = String(r[0] || '').trim();
+        if (!mid) continue;
+        const mType = String(r[1] || '').trim().toUpperCase();
+        if (mType === 'FERTILIZER') {
+          fertilizers[mid] = {
+            id: mid,
+            name: String(r[2] || mid),
+            unitKg: Number(r[5] || 20),
+            n: Number(r[7] || 0),
+            p: Number(r[8] || 0),
+            k: Number(r[9] || 0),
+            stock: Number(r[13] || 0),
+            reorder: Number(r[14] || 10)
+          };
+        } else if (mType === 'PESTICIDE') {
+          const baseUnit = String(r[6] || 'mL').trim();
+          const isGranule = baseUnit === 'g' || baseUnit === 'kg';
+          const unitSize = Number(r[5] || (isGranule ? 3000 : 500));
+          const stockQty = Number(r[13] || 0);
+          pesticides[mid] = {
+            id: mid,
+            name: String(r[2] || mid),
+            regNo: String(r[3] || '-'),
+            activeIngredient: String(r[4] || '-'),
+            formulation: isGranule ? 'granule' : 'liquid',
+            unitSizeMl: isGranule ? 0 : unitSize,
+            unitSizeKg: isGranule ? (baseUnit === 'g' ? unitSize / 1000 : unitSize) : 0,
+            stdDilution: Number(r[10] || 1000),
+            maxUse: Number(r[11] || 2),
+            phiDays: Number(r[12] || 14),
+            stock: stockQty,
+            stockMl: isGranule ? 0 : stockQty * unitSize,
+            stockKg: isGranule ? stockQty * (baseUnit === 'g' ? unitSize / 1000 : unitSize) : 0,
+            reorder: Number(r[14] || 5)
+          };
+        }
+      }
+    }
+
+    const machines = {};
+    if (machSheet && machSheet.getLastRow() > 1) {
+      const rows = machSheet.getDataRange().getValues();
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        const mid = String(r[0] || '').trim();
+        if (!mid) continue;
+        machines[mid] = {
+          id: mid,
+          name: String(r[1] || mid),
+          category: String(r[2] || '農機'),
+          currentHour: Number(r[4] || 0),
+          nextMaint: Number(r[5] || 100),
+          interval: Number(r[6] || 100)
+        };
+      }
+    }
+
+    return jsonResponse_({
+      status: 'ok',
+      action: params.action || 'masters',
+      timestamp: new Date().toISOString(),
+      counts: {
+        fields: fields.length,
+        fertilizers: Object.keys(fertilizers).length,
+        pesticides: Object.keys(pesticides).length,
+        machines: Object.keys(machines).length
+      },
+      fields: fields,
+      fertilizers: fertilizers,
+      pesticides: pesticides,
+      machines: machines
+    });
+  } catch (err) {
+    return jsonResponse_({ status: 'error', message: err.toString() });
+  }
+}
+
+function verifySyncToken_(token) {
+  const expectedToken = PropertiesService.getScriptProperties().getProperty('SYNC_TOKEN');
+  if (!expectedToken) {
+    return 'GAS側でスクリプトプロパティ SYNC_TOKEN が未設定です。設定後に再度同期してください。';
+  }
+  if (!timingSafeEqual_(String(token || ''), expectedToken)) {
+    return '同期用トークンが一致しません。アプリの設定画面のトークンを確認してください。';
+  }
+  return '';
+}
+
+function formatDateValue_(val) {
+  if (!val) return '';
+  if (Object.prototype.toString.call(val) === '[object Date]' && !isNaN(val.getTime())) {
+    return Utilities.formatDate(val, 'JST', 'yyyy/MM/dd');
+  }
+  return String(val).replace(/-/g, '/');
 }
 
 // ヘルパー関数

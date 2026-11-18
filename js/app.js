@@ -64,6 +64,23 @@ function initApp() {
   renderReportsTab();
   updateSyncBadge();
   setupDelegatedEvents_();
+
+  // TSK-020: IndexedDB から大容量データを非同期ハイドレーション（初回は localStorage から自動移行）
+  if (typeof loadStateFromStorageAsync === 'function') {
+    loadStateFromStorageAsync().then((loadedFromIdb) => {
+      if (loadedFromIdb) {
+        ensureFieldBaselines();
+        recalculateFieldStats();
+        if (document.getElementById('gasWebhookUrl')) document.getElementById('gasWebhookUrl').value = gasWebhookUrl || '';
+        if (document.getElementById('gasSyncToken')) document.getElementById('gasSyncToken').value = gasSyncToken || '';
+        if (fieldsData.length > 0 && selectedFieldIds.length === 0) {
+          selectedFieldIds = fieldsData.slice(0, 3).map(f => f.id);
+        }
+        refreshAllViews();
+      }
+      updateStorageInfoBadge();
+    }).catch(() => {});
+  }
 }
 
 let _delegatedEventsBound = false;
@@ -79,6 +96,7 @@ const ACTION_HANDLERS = {
   toggleUserManualModal: (el) => toggleUserManualModal(parseOptionalBool_(el.dataset.arg)),
   toggleOfflineMode: () => toggleOfflineMode(),
   syncWithGasBackend: () => syncWithGasBackend(),
+  syncFromGasBackend: () => syncFromGasBackend(),
   setTodayWorkDate: () => setTodayWorkDate(),
   applyPreset: (el) => applyPreset(el.dataset.arg),
   selectFieldGroup: (el) => selectFieldGroup(el.dataset.arg),
@@ -235,6 +253,15 @@ function updateSyncBadge() {
     dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
     text.textContent = unsyncedCount > 0 ? `端末保存済（クラウド未送信 ${unsyncedCount}件）` : '端末保存済・全件同期済';
   }
+}
+
+async function updateStorageInfoBadge() {
+  const el = document.getElementById('storageStatusBadge');
+  if (!el || typeof getStorageStatsAsync !== 'function') return;
+  try {
+    const stats = await getStorageStatsAsync();
+    el.textContent = `保存先: ${stats.backend} ／ 使用量: ${stats.kb} KB（圃場 ${stats.fieldCount}筆・日誌 ${stats.workLogCount}件・ポリゴン頂点 ${stats.polygonPts}点）`;
+  } catch (e) {}
 }
 
 
