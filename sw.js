@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rakuraku-einou-pwa-v13';
+const CACHE_NAME = 'rakuraku-einou-pwa-v14';
 // 航空写真タイル専用キャッシュ（上限件数を超えたら古い順に削除して肥大化を防ぐ）
 const TILE_CACHE_NAME = 'rakuraku-einou-tiles-v1';
 const TILE_CACHE_MAX_ENTRIES = 600;
@@ -21,6 +21,8 @@ const LOCAL_ASSETS = [
   './js/features/photoGps.js',
   './js/features/resources.js',
   './js/features/reports.js',
+  './js/features/regressionAnalytics.js',
+  './js/features/weatherAdvisory.js',
   './js/features/syncAndMigration.js',
   './js/app.js'
 ];
@@ -87,6 +89,9 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
+  if (url.hostname === 'api.open-meteo.com' || url.hostname === 'script.google.com') {
+    return; // 動的APIはアプリ側キャッシュ・直接通信に委ねる
+  }
   if (url.hostname === TILE_HOST) {
     event.respondWith(handleTileRequest_(event.request));
     return;

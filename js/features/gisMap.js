@@ -722,6 +722,11 @@ function inspectField(fieldId) {
       : `🌾 刈取適期（${tStats.targetC}℃）に到達しています（予測適期日: ${tStats.predictedHarvestDate}）`;
   }
 
+  // TSK-038: 気象API自動連携＆高温・病害虫AI予察カード更新
+  if (typeof renderFieldWeatherCard === 'function') {
+    renderFieldWeatherCard(f.id);
+  }
+
   // 機能③：現地見回りメモ＆被害・生育アラート
   if (!Array.isArray(f.alerts)) f.alerts = [];
   const alertCntBadge = document.getElementById('karteAlertCountBadge');

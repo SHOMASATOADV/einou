@@ -1,6 +1,6 @@
 // Feature: JA / Gov A4 Reports & CSV Export
 function switchReportType(type) {
-  ['ja', 'daily', 'yield'].forEach(t => {
+  ['ja', 'daily', 'yield', 'regression'].forEach(t => {
     const sheet = document.getElementById('reportSheet-' + t);
     const btn = document.getElementById('repBtn-' + t);
     if (!sheet || !btn) return;
@@ -12,6 +12,9 @@ function switchReportType(type) {
       btn.className = 'px-4 py-2 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]';
     }
   });
+  if (type === 'regression' && typeof renderNitrogenRegressionDashboard === 'function') {
+    renderNitrogenRegressionDashboard();
+  }
 }
 
 function populateJaReportFilterOptions_() {
@@ -387,6 +390,9 @@ function renderReportsTab() {
   renderJaPesticideTable_(targetFieldIds);
   renderDailyWorkReport_();
   renderProfitabilityReport_();
+  if (typeof renderNitrogenRegressionDashboard === 'function') {
+    renderNitrogenRegressionDashboard();
+  }
 }
 
 function updateCostSettingsFromUi() {

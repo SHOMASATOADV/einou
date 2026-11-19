@@ -65,6 +65,11 @@ function initApp() {
   updateSyncBadge();
   setupDelegatedEvents_();
 
+  // TSK-038: 気象API自動連携＆AI予察初期化
+  if (typeof initWeatherAdvisory === 'function') {
+    initWeatherAdvisory();
+  }
+
   // TSK-020: IndexedDB から大容量データを非同期ハイドレーション（初回は localStorage から自動移行）
   if (typeof loadStateFromStorageAsync === 'function') {
     loadStateFromStorageAsync().then((loadedFromIdb) => {
@@ -173,6 +178,11 @@ const ACTION_HANDLERS = {
   inspectMatchedFieldFromPhoto: (el) => inspectMatchedFieldFromPhoto(el.dataset.arg),
   createNewFieldFromPhotoCluster: (el) => createNewFieldFromPhotoCluster(el.dataset.arg),
   clearPhotoGpsResults: () => clearPhotoGpsResults(),
+  toggleRegressionDemoMode: () => toggleRegressionDemoMode(),
+  renderNitrogenRegressionDashboard: () => renderNitrogenRegressionDashboard(),
+  inspectFieldFromRegression: (el) => inspectFieldFromRegression(el.dataset.arg),
+  toggleWeatherDetailDrawer: () => toggleWeatherDetailDrawer(),
+  refreshWeatherAdvisory: () => refreshWeatherAdvisory(true),
   closeModalOnBackdrop: (el, ev) => {
     if (ev.target === el) ModalManager.close(el.id);
   }

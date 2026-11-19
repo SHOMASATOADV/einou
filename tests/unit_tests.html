@@ -312,6 +312,46 @@
         assert(Array.isArray(payload.workLogs), 'payload has workLogs');
       });
 
+      test('TSK-036: computeQuadraticRegression & diagnoseNitrogenStatus', () => {
+        // y = -10*(x - 6)^2 + 580 = -10x^2 + 120x + 220 (ピーク x=6.0, y=580)
+        const pts = [
+          { id: 'A', name: '田A', nPer10a: 4, yieldPer10a: 540 },
+          { id: 'B', name: '田B', nPer10a: 6, yieldPer10a: 580 },
+          { id: 'C', name: '田C', nPer10a: 8, yieldPer10a: 540 }
+        ];
+        const reg = w.computeQuadraticRegression(pts);
+        assertEqual(reg.valid, true, 'regression valid');
+        assertEqual(reg.isConcaveDown, true, 'concave down');
+        assertApprox(reg.optX, 6.0, 0.01, 'optimal N = 6.0');
+        assertApprox(reg.optY, 580.0, 0.1, 'optimal yield = 580');
+        assertApprox(reg.r2, 1.0, 0.001, 'exact quadratic fit R2 = 1');
+
+        assertEqual(w.diagnoseNitrogenStatus({ nPer10a: 7.5 }, 6.0).status, 'excess', 'excess detected');
+        assertEqual(w.diagnoseNitrogenStatus({ nPer10a: 4.5 }, 6.0).status, 'deficit', 'deficit detected');
+        assertEqual(w.diagnoseNitrogenStatus({ nPer10a: 6.2 }, 6.0).status, 'optimal', 'optimal detected');
+      });
+
+      test('TSK-038: evaluateHeatRipeningRisk & evaluatePestAndDroneRisk', () => {
+        const hotWetWeather = {
+          current: { temperature_2m: 31, relative_humidity_2m: 85, wind_speed_10m: 4.5, wind_direction_10m: 180 },
+          daily: {
+            time: ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14'],
+            temperature_2m_max: [36.0, 35.5, 33.0, 34.0, 35.2],
+            temperature_2m_min: [24.0, 24.5, 23.0, 23.5, 24.0],
+            temperature_2m_mean: [28.5, 28.0, 27.2, 27.5, 28.1],
+            precipitation_sum: [5.0, 8.0, 3.0, 0.0, 0.0],
+            relative_humidity_2m_mean: [86, 88, 84, 78, 75]
+          }
+        };
+        const heat = w.evaluateHeatRipeningRisk(hotWetWeather, { headingDate: '2026/08/08' });
+        assertEqual(heat.level, 'danger', 'high temp triggers danger alert');
+        assert(heat.daysOver35 >= 2, 'counts >= 35C days');
+
+        const pest = w.evaluatePestAndDroneRisk(hotWetWeather);
+        assertEqual(pest.drone.ok, false, 'wind >= 4.0m/s blocks drone spraying');
+        assertEqual(pest.blast.level, 'danger', '3 consecutive rain days trigger blast warning');
+      });
+
       document.getElementById('summary').textContent = `TOTAL: ${passed + failed} | PASS: ${passed} | FAIL: ${failed}`;
       document.getElementById('summary').className = failed === 0 ? 'pass' : 'fail';
       document.getElementById('results').textContent = results.join('\n');

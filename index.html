@@ -52,6 +52,11 @@
     </div>
   </header>
 
+  <!-- TSK-038: リアルタイム気象API自動連携 ＆ 高温・病害虫AI予察ウィジェット -->
+  <div id="weatherHeaderWidget" class="no-print bg-[var(--card)] border border-[var(--border)] rounded-2xl mb-4 shadow-sm overflow-hidden">
+    <div class="text-xs text-[var(--muted-foreground)] px-3.5 py-2.5">🌦️ 気象データ取得中...</div>
+  </div>
+
   <!-- メインナビゲーションタブ（5タブ） -->
   <nav class="no-print grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-5">
     <button data-action="switchMainTab" data-arg="input" id="tabBtn-input" class="flex items-center justify-center gap-1.5 py-3 px-3 rounded-xl font-bold text-xs md:text-sm border transition bg-emerald-600 text-white border-emerald-600 shadow-sm">
@@ -799,6 +804,11 @@
         </div>
       </div>
 
+      <!-- TSK-038: 圃場別 気象API・高温登熟＆病害虫AI予察カード -->
+      <div id="gisFieldWeatherCard" class="p-4 rounded-2xl bg-[var(--background)] border border-[var(--border)] mb-4">
+        <div class="text-xs text-[var(--muted-foreground)]">🌦️ 気象予察データを読み込み中...</div>
+      </div>
+
       <!-- 機能③：現地見回りメモ ＆ 被害・生育アラート記録 -->
       <div class="p-4 rounded-2xl bg-[var(--background)] border border-[var(--border)] mb-4">
         <div class="flex items-center justify-between mb-2">
@@ -1016,6 +1026,9 @@
         <button data-action="switchReportType" data-arg="yield" id="repBtn-yield" class="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">
           📊 3. 経営・GAP用：圃場別「反収×NPK×労働時間」総括表
         </button>
+        <button data-action="switchReportType" data-arg="regression" id="repBtn-regression" class="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">
+          📈 4. AI施肥分析：チッソ×反収 二次曲線回帰
+        </button>
       </div>
       <div class="flex items-center gap-2">
         <button data-action="exportCsvData" class="px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold hover:opacity-90">
@@ -1186,6 +1199,25 @@
             <tbody id="yieldReportBody"></tbody>
           </table>
         </div>
+      </div>
+
+      <!-- 帳票④：TSK-036 チッソ(N)施肥量 × 反収 二次曲線回帰分析ダッシュボード -->
+      <div id="reportSheet-regression" class="hidden">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b-2 border-slate-800 pb-3 mb-4">
+          <div>
+            <h2 class="text-xl font-bold tracking-wide text-slate-900">チッソ(N)施肥量 × 反収 二次曲線回帰分析（収穫逓減カーブ）</h2>
+            <p class="text-xs text-slate-600 mt-0.5">最小二乗法（y = ax² + bx + c）により、最も反収が高くなる最適チッソ施肥量（ピーク値）を自動算出し、過剰・不足圃場を診断します。</p>
+          </div>
+          <div class="no-print flex flex-wrap items-center gap-2">
+            <select id="regressionCropFilter" data-change="renderNitrogenRegressionDashboard" class="px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-300 text-xs font-bold text-slate-800">
+              <option value="ALL">すべての品種（全圃場）</option>
+            </select>
+            <button type="button" id="regressionDemoToggleBtn" data-action="toggleRegressionDemoMode" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-800 border border-slate-300 hover:opacity-80 transition">
+              📊 サンプル7筆で回帰曲線を試算
+            </button>
+          </div>
+        </div>
+        <div id="regressionDashboardBody"></div>
       </div>
     </div>
   </section>
@@ -1846,6 +1878,8 @@
   <script src="./js/features/photoGps.js"></script>
   <script src="./js/features/resources.js"></script>
   <script src="./js/features/reports.js"></script>
+  <script src="./js/features/regressionAnalytics.js"></script>
+  <script src="./js/features/weatherAdvisory.js"></script>
   <script src="./js/features/syncAndMigration.js"></script>
   <script src="./js/app.js"></script>
 </body>
