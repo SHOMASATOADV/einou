@@ -85,3 +85,55 @@ table {
   border-collapse: collapse;
   width: 100%;
 }
+
+/* ==========================================================================
+ * UI改良：屋外直射日光ハイコントラストモード・音声パルス・片手操作サポート
+ * ========================================================================== */
+body.outdoor-mode {
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #ffffff;
+  --border: #0f172a;
+  --secondary: #e2e8f0;
+  --secondary-foreground: #000000;
+  --muted-foreground: #1e293b;
+  color-scheme: light;
+  font-size: 17px;
+}
+
+body.outdoor-mode button,
+body.outdoor-mode input,
+body.outdoor-mode select,
+body.outdoor-mode textarea {
+  border-width: 2px !important;
+  font-weight: 700 !important;
+}
+
+@keyframes voicePulseRing {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+.voice-listening {
+  background-color: #dc2626 !important;
+  color: #ffffff !important;
+  border-color: #b91c1c !important;
+  animation: voicePulseRing 1.3s infinite;
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+@media (max-width: 767px) {
+  body {
+    padding-bottom: 5.2rem !important;
+  }
+}

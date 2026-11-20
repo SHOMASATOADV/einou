@@ -69,6 +69,7 @@ function initApp() {
   if (typeof initWeatherAdvisory === 'function') {
     initWeatherAdvisory();
   }
+  applyOutdoorModeFromStorage_();
 
   // TSK-020: IndexedDB から大容量データを非同期ハイドレーション（初回は localStorage から自動移行）
   if (typeof loadStateFromStorageAsync === 'function') {
@@ -183,6 +184,15 @@ const ACTION_HANDLERS = {
   inspectFieldFromRegression: (el) => inspectFieldFromRegression(el.dataset.arg),
   toggleWeatherDetailDrawer: () => toggleWeatherDetailDrawer(),
   refreshWeatherAdvisory: () => refreshWeatherAdvisory(true),
+  openVoiceInputModal: () => openVoiceInputModal(),
+  closeVoiceInputModal: () => closeVoiceInputModal(),
+  toggleVoiceCommandListening: () => toggleVoiceCommandListening(),
+  toggleMemoDictation: () => toggleMemoDictation(),
+  parseVoiceTextFromInput: () => parseVoiceTextFromInput(),
+  useVoiceExample: (el) => useVoiceExample(el.dataset.arg),
+  applyVoiceResultAndSubmit: () => applyVoiceResultAndSubmit(),
+  toggleOutdoorMode: () => toggleOutdoorMode(),
+  quickSubmitFromBottomBar: () => quickSubmitFromBottomBar(),
   closeModalOnBackdrop: (el, ev) => {
     if (ev.target === el) ModalManager.close(el.id);
   }
@@ -275,7 +285,7 @@ async function updateStorageInfoBadge() {
 }
 
 
-const MODAL_IDS = ['tasteOcrModal', 'userManualModal'];
+const MODAL_IDS = ['tasteOcrModal', 'userManualModal', 'photoGpsModal', 'voiceInputModal'];
 const ModalManager = {
   open(id) {
     const modal = document.getElementById(id);
@@ -284,6 +294,9 @@ const ModalManager = {
   close(id) {
     const modal = document.getElementById(id);
     if (modal) modal.classList.add('hidden');
+    if (id === 'voiceInputModal' && typeof stopVoiceRecognition === 'function') {
+      stopVoiceRecognition();
+    }
   },
   toggle(id, forceOpen) {
     const modal = document.getElementById(id);
@@ -295,6 +308,34 @@ const ModalManager = {
     MODAL_IDS.forEach(id => this.close(id));
   }
 };
+
+function applyOutdoorModeFromStorage_() {
+  let enabled = false;
+  try { enabled = localStorage.getItem('rakuraku_outdoor_mode') === '1'; } catch (e) {}
+  document.body.classList.toggle('outdoor-mode', enabled);
+  const btn = document.getElementById('outdoorModeBtn');
+  if (btn) {
+    btn.textContent = enabled ? '☀️ 屋外モードON' : '☀️ 屋外高視認';
+    btn.className = enabled
+      ? 'px-3 py-2 rounded-xl border-2 border-black bg-amber-400 text-black text-xs font-extrabold transition shadow-sm'
+      : 'px-3 py-2 rounded-xl border border-amber-500/40 bg-amber-500/15 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25 text-xs font-bold transition shadow-sm';
+  }
+}
+
+function toggleOutdoorMode() {
+  const next = !document.body.classList.contains('outdoor-mode');
+  try { localStorage.setItem('rakuraku_outdoor_mode', next ? '1' : '0'); } catch (e) {}
+  applyOutdoorModeFromStorage_();
+  showToast(
+    next ? '☀️ 屋外ハイコントラストモード ON' : '🌤️ 通常表示モードに戻しました',
+    next ? '直射日光下でも見やすい高コントラスト配色・太字枠・大きめ文字に切り替えました。' : '標準のライト／ダーク配色に戻しました。'
+  );
+}
+
+function quickSubmitFromBottomBar() {
+  switchMainTab('input');
+  submitUnifiedWorkLog();
+}
 
 function toggleUserManualModal(forceOpen) {
   ModalManager.toggle('userManualModal', forceOpen);

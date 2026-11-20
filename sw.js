@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rakuraku-einou-pwa-v14';
+const CACHE_NAME = 'rakuraku-einou-pwa-v15';
 // 航空写真タイル専用キャッシュ（上限件数を超えたら古い順に削除して肥大化を防ぐ）
 const TILE_CACHE_NAME = 'rakuraku-einou-tiles-v1';
 const TILE_CACHE_MAX_ENTRIES = 600;
@@ -23,6 +23,7 @@ const LOCAL_ASSETS = [
   './js/features/reports.js',
   './js/features/regressionAnalytics.js',
   './js/features/weatherAdvisory.js',
+  './js/features/voiceInput.js',
   './js/features/syncAndMigration.js',
   './js/app.js'
 ];
