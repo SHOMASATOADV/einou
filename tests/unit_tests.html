@@ -414,6 +414,31 @@
         assertEqual(tasks[0].priority, 'high', 'top task is high priority');
       });
 
+      test('TSK-028: matchMaterialByBarcode handles JAN, regNo, QR prefix, JSON, and unknown', () => {
+        const ferts = { F01: { id: 'F01', name: 'オール14', janCode: '4901234567890' } };
+        const pests = { P01: { id: 'P01', name: 'アミスター', regNo: '第20142号' } };
+
+        const m1 = w.matchMaterialByBarcode('4901234567890', ferts, pests);
+        assertEqual(m1.matched, true, 'JAN matched');
+        assertEqual(m1.type, 'fertilizer', 'type fertilizer');
+        assertEqual(m1.id, 'F01', 'id F01');
+
+        const m2 = w.matchMaterialByBarcode('20142', ferts, pests);
+        assertEqual(m2.matched, true, 'regNo matched');
+        assertEqual(m2.id, 'P01', 'id P01');
+
+        const m3 = w.matchMaterialByBarcode('EINOU:P01', ferts, pests);
+        assertEqual(m3.matched, true, 'QR prefix matched');
+        assertEqual(m3.id, 'P01', 'id P01 via QR');
+
+        const m4 = w.matchMaterialByBarcode('{"id":"F01"}', ferts, pests);
+        assertEqual(m4.matched, true, 'JSON QR matched');
+        assertEqual(m4.id, 'F01', 'id F01 via JSON');
+
+        const m5 = w.matchMaterialByBarcode('4909999888877', ferts, pests);
+        assertEqual(m5.matched, false, 'unknown JAN returns unmatched');
+      });
+
       document.getElementById('summary').textContent = `TOTAL: ${passed + failed} | PASS: ${passed} | FAIL: ${failed}`;
       document.getElementById('summary').className = failed === 0 ? 'pass' : 'fail';
       document.getElementById('results').textContent = results.join('\n');

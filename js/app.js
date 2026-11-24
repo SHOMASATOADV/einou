@@ -203,6 +203,14 @@ const ACTION_HANDLERS = {
   applyVoiceResultAndSubmit: () => applyVoiceResultAndSubmit(),
   toggleOutdoorMode: () => toggleOutdoorMode(),
   quickSubmitFromBottomBar: () => quickSubmitFromBottomBar(),
+  openBarcodeScanModal: () => openBarcodeScanModal(),
+  closeBarcodeScanModal: () => closeBarcodeScanModal(),
+  toggleBarcodeCamera: () => toggleBarcodeCamera(),
+  handleBarcodeImageSelect: (el, ev) => handleBarcodeImageSelect(ev),
+  lookupBarcodeManualInput: () => lookupBarcodeManualInput(),
+  testBarcodeSample: (el) => testBarcodeSample(el.dataset.arg),
+  applyScannedMaterialToForm: (el) => applyScannedMaterialToForm(el.dataset.arg),
+  bindScannedBarcodeToExistingMaterial: () => bindScannedBarcodeToExistingMaterial(),
   closeModalOnBackdrop: (el, ev) => {
     if (ev.target === el) ModalManager.close(el.id);
   }
@@ -295,7 +303,7 @@ async function updateStorageInfoBadge() {
 }
 
 
-const MODAL_IDS = ['tasteOcrModal', 'userManualModal', 'photoGpsModal', 'voiceInputModal'];
+const MODAL_IDS = ['tasteOcrModal', 'userManualModal', 'photoGpsModal', 'voiceInputModal', 'barcodeScanModal'];
 const ModalManager = {
   open(id) {
     const modal = document.getElementById(id);
@@ -306,6 +314,9 @@ const ModalManager = {
     if (modal) modal.classList.add('hidden');
     if (id === 'voiceInputModal' && typeof stopVoiceRecognition === 'function') {
       stopVoiceRecognition();
+    }
+    if (id === 'barcodeScanModal' && typeof stopBarcodeCamera === 'function') {
+      stopBarcodeCamera();
     }
   },
   toggle(id, forceOpen) {

@@ -316,7 +316,8 @@
             <span class="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">3</span>
             <h3 class="text-sm font-bold text-[var(--foreground)]" id="materialSectionTitle">使用資材・自動計算</h3>
           </div>
-          <div class="flex items-center gap-2 text-xs">
+          <div class="flex items-center flex-wrap gap-2 text-xs">
+            <button type="button" data-action="openBarcodeScanModal" class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-sm transition">📷 JAN/QRスキャン選択</button>
             <button type="button" data-action="switchMainTabAndPanel" data-arg="resource" data-arg2="quickFertForm" class="font-bold text-emerald-600 hover:underline">＋ 肥料銘柄を追加</button>
             <span class="text-[var(--muted-foreground)]">/</span>
             <button type="button" data-action="switchMainTabAndPanel" data-arg="resource" data-arg2="quickPestForm" class="font-bold text-sky-600 hover:underline">＋ 農薬銘柄を追加</button>
@@ -2005,6 +2006,64 @@
     </button>
   </nav>
 
+  <!-- ========================================================================= -->
+  <!-- 📷 JANバーコード / QRコード読み取り 自動資材選択モーダル（TSK-028）          -->
+  <!-- ========================================================================= -->
+  <div id="barcodeScanModal" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" data-action="closeModalOnBackdrop">
+    <div class="bg-[var(--card)] border-2 border-[var(--border)] rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] bg-indigo-600 text-white shrink-0">
+        <div>
+          <h2 class="text-base md:text-lg font-bold">📷 農薬ボトル・肥料袋 JAN / QR スキャン選択</h2>
+          <p class="text-xs text-indigo-100">バーコードをかざすだけで肥料・農薬を自動選択（未登録JANもその場で既存資材に紐付け可能）</p>
+        </div>
+        <button type="button" data-action="closeBarcodeScanModal" class="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-bold transition">✕ 閉じる</button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-4">
+        <div class="relative rounded-2xl overflow-hidden bg-slate-900 border border-[var(--border)] aspect-video flex items-center justify-center">
+          <video id="barcodeVideo" playsinline muted class="hidden w-full h-full object-cover"></video>
+          <div id="barcodeCameraPlaceholder" class="text-center p-4 text-slate-300 text-xs space-y-1">
+            <div class="text-3xl">📷</div>
+            <div class="font-bold">下の「カメラでスキャン開始」を押してJAN/QRコードをかざしてください</div>
+          </div>
+          <div class="pointer-events-none absolute inset-x-10 top-1/2 -translate-y-1/2 h-24 border-2 border-emerald-400/80 rounded-xl"></div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex flex-wrap gap-2">
+            <button type="button" id="barcodeCameraToggleBtn" data-action="toggleBarcodeCamera" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm transition">
+              📷 カメラでスキャン開始
+            </button>
+            <input type="file" id="barcodeImageFileInput" accept="image/*" capture="environment" data-change="handleBarcodeImageSelect" class="hidden">
+            <button type="button" data-action="clickElement" data-arg="barcodeImageFileInput" class="px-3 py-2 rounded-xl bg-[var(--secondary)] text-[var(--secondary-foreground)] border border-[var(--border)] text-xs font-bold hover:opacity-80">
+              🖼️ 写真から読取
+            </button>
+          </div>
+          <div id="barcodeSupportStatus" class="text-[11px] font-semibold text-[var(--muted-foreground)]"></div>
+        </div>
+
+        <div class="p-3.5 rounded-2xl bg-[var(--background)] border border-[var(--border)] space-y-2">
+          <div class="text-xs font-bold text-[var(--muted-foreground)]">🔍 JAN番号・農薬登録番号・QRコード手入力（またはデモテスト）</div>
+          <div class="flex gap-2">
+            <input type="text" id="barcodeManualInput" placeholder="例: 4901001000014 / 20142 / EINOU:P01" class="flex-1 px-3 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)] text-xs font-mono text-[var(--foreground)]">
+            <button type="button" data-action="lookupBarcodeManualInput" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shrink-0">照合</button>
+          </div>
+          <div class="flex flex-wrap gap-1.5 pt-1">
+            <button type="button" data-action="testBarcodeSample" data-arg="4901001000014" class="px-2.5 py-1 rounded-lg bg-[var(--secondary)] text-[var(--secondary-foreground)] text-[11px] font-bold hover:opacity-80">🧪 デモ肥料JAN (オール14)</button>
+            <button type="button" data-action="testBarcodeSample" data-arg="4902002020142" class="px-2.5 py-1 rounded-lg bg-[var(--secondary)] text-[var(--secondary-foreground)] text-[11px] font-bold hover:opacity-80">🛡️ デモ農薬JAN (アミスター)</button>
+            <button type="button" data-action="testBarcodeSample" data-arg="4909999888877" class="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-700 text-[11px] font-bold hover:opacity-80">🔗 未登録JAN紐付けテスト</button>
+          </div>
+        </div>
+
+        <div id="barcodeScanResult"></div>
+      </div>
+
+      <div class="px-5 py-3 border-t border-[var(--border)] bg-[var(--secondary)] flex items-center justify-end shrink-0">
+        <button type="button" data-action="closeBarcodeScanModal" class="px-4 py-2 rounded-xl bg-[var(--card)] border border-[var(--border)] text-[var(--foreground)] text-xs font-bold">閉じる</button>
+      </div>
+    </div>
+  </div>
+
   <script src="./js/constants.js"></script>
   <script src="./js/utils.js"></script>
   <script src="./js/storage.js"></script>
@@ -2021,6 +2080,7 @@
   <script src="./js/features/weatherAdvisory.js"></script>
   <script src="./js/features/aiAdvisor.js"></script>
   <script src="./js/features/voiceInput.js"></script>
+  <script src="./js/features/barcodeScanner.js"></script>
   <script src="./js/features/syncAndMigration.js"></script>
   <script src="./js/app.js"></script>
 </body>
