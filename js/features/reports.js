@@ -1,6 +1,6 @@
 // Feature: JA / Gov A4 Reports & CSV Export
 function switchReportType(type) {
-  ['ja', 'daily', 'yield', 'regression'].forEach(t => {
+  ['ja', 'daily', 'yield', 'regression', 'portfolio'].forEach(t => {
     const sheet = document.getElementById('reportSheet-' + t);
     const btn = document.getElementById('repBtn-' + t);
     if (!sheet || !btn) return;
@@ -14,6 +14,9 @@ function switchReportType(type) {
   });
   if (type === 'regression' && typeof renderNitrogenRegressionDashboard === 'function') {
     renderNitrogenRegressionDashboard();
+  }
+  if (type === 'portfolio' && typeof renderPortfolioDashboard === 'function') {
+    renderPortfolioDashboard();
   }
 }
 
@@ -392,6 +395,9 @@ function renderReportsTab() {
   renderProfitabilityReport_();
   if (typeof renderNitrogenRegressionDashboard === 'function') {
     renderNitrogenRegressionDashboard();
+  }
+  if (typeof renderPortfolioDashboard === 'function') {
+    renderPortfolioDashboard();
   }
 }
 

@@ -22,6 +22,7 @@ function refreshAllViews() {
   renderReportsTab();
   updateSyncBadge();
   refreshInteractiveMaps_();
+  if (typeof renderAiAdvisorPanel === 'function') renderAiAdvisorPanel();
 }
 
 function initApp() {
@@ -68,6 +69,9 @@ function initApp() {
   // TSK-038: 気象API自動連携＆AI予察初期化
   if (typeof initWeatherAdvisory === 'function') {
     initWeatherAdvisory();
+  }
+  if (typeof renderAiAdvisorPanel === 'function') {
+    renderAiAdvisorPanel();
   }
   applyOutdoorModeFromStorage_();
 
@@ -182,6 +186,12 @@ const ACTION_HANDLERS = {
   toggleRegressionDemoMode: () => toggleRegressionDemoMode(),
   renderNitrogenRegressionDashboard: () => renderNitrogenRegressionDashboard(),
   inspectFieldFromRegression: (el) => inspectFieldFromRegression(el.dataset.arg),
+  togglePortfolioDemoMode: () => togglePortfolioDemoMode(),
+  renderPortfolioDashboard: () => renderPortfolioDashboard(),
+  changePortfolioAxisMode: (el) => changePortfolioAxisMode(el.value),
+  inspectFieldFromPortfolio: (el) => inspectFieldFromPortfolio(el.dataset.arg),
+  toggleAiAdvisorPanel: () => toggleAiAdvisorPanel(),
+  applyAiTaskToInput: (el) => applyAiTaskToInput(el.dataset.arg),
   toggleWeatherDetailDrawer: () => toggleWeatherDetailDrawer(),
   refreshWeatherAdvisory: () => refreshWeatherAdvisory(true),
   openVoiceInputModal: () => openVoiceInputModal(),

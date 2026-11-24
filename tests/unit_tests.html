@@ -383,6 +383,37 @@
         w.toggleOutdoorMode();
       });
 
+      test('TSK-037: classifyPortfolioQuadrants classifies 4 groups by median', () => {
+        const sample = [
+          { id: 'S', name: '主力', area: 40, hoursPer10a: 3.0, profitPer10aYen: 150000 },
+          { id: 'I', name: '改善', area: 30, hoursPer10a: 4.0, profitPer10aYen: 80000 },
+          { id: 'H', name: '過多', area: 20, hoursPer10a: 9.0, profitPer10aYen: 140000 },
+          { id: 'R', name: '見直', area: 15, hoursPer10a: 10.0, profitPer10aYen: 60000 }
+        ];
+        const res = w.classifyPortfolioQuadrants(sample, 'median');
+        assertEqual(res.valid, true, 'portfolio valid');
+        assertEqual(res.counts.star, 1, '1 star');
+        assertEqual(res.counts.improve, 1, '1 improve');
+        assertEqual(res.counts.heavy, 1, '1 heavy');
+        assertEqual(res.counts.review, 1, '1 review');
+      });
+
+      test('TSK-039: analyzeFieldMemosAndAlerts & generateWeeklyAiTasks', () => {
+        const mockFields = [
+          { id: 'F01', name: '本場1号', area: 30, headingDate: '2026/08/08', targetTempC: 1000, dailyMeanTempC: 25.0, alerts: [{ id: 'A1', date: '2026/08/10', text: 'イノシシ畦畔掘り侵入跡' }], doneCats: [] }
+        ];
+        const mockLogs = [
+          { id: 'L1', date: '2026/08/11', fieldIds: ['F01'], memo: '【引き継ぎ】水漏れ確認とヒエ雑草注意' }
+        ];
+        const analysis = w.analyzeFieldMemosAndAlerts(mockFields, mockLogs);
+        assert(analysis[0].score >= 60, 'high urgency score calculated');
+        assert(analysis[0].tags.length >= 2, 'multiple issue tags extracted');
+
+        const tasks = w.generateWeeklyAiTasks(mockFields, mockLogs, null);
+        assert(tasks.length >= 1, 'at least 1 AI task generated');
+        assertEqual(tasks[0].priority, 'high', 'top task is high priority');
+      });
+
       document.getElementById('summary').textContent = `TOTAL: ${passed + failed} | PASS: ${passed} | FAIL: ${failed}`;
       document.getElementById('summary').className = failed === 0 ? 'pass' : 'fail';
       document.getElementById('results').textContent = results.join('\n');

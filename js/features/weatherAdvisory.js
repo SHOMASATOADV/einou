@@ -297,6 +297,9 @@ async function refreshWeatherAdvisory(forceRefresh = true) {
   if (typeof currentInspectedFieldId === 'string' && currentInspectedFieldId) {
     renderFieldWeatherCard(currentInspectedFieldId);
   }
+  if (typeof renderAiAdvisorPanel === 'function') {
+    renderAiAdvisorPanel();
+  }
   if (forceRefresh && typeof showToast === 'function') {
     const src = window._weatherDataState?.source === 'open-meteo' ? 'Open-Meteo 最新気象データ' : 'キャッシュ/オフライン推定データ';
     showToast('🌦️ 気象・AI予察データを更新しました', `${src}に基づき高温登熟・病害虫・ドローン防除可否を再判定しました。`);
@@ -453,6 +456,9 @@ function initWeatherAdvisory() {
     renderWeatherHeaderWidget();
     if (typeof currentInspectedFieldId === 'string' && currentInspectedFieldId) {
       renderFieldWeatherCard(currentInspectedFieldId);
+    }
+    if (typeof renderAiAdvisorPanel === 'function') {
+      renderAiAdvisorPanel();
     }
   }).catch(() => {});
 }
