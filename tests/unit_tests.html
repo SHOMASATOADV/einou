@@ -439,6 +439,33 @@
         assertEqual(m5.matched, false, 'unknown JAN returns unmatched');
       });
 
+      test('TSK-040: aggregateMonthlyJunWorkStats, computeParetoAbcAnalysis & simulateBottleneckSavings', () => {
+        const mockLogs = [
+          { date: '2026/05/05', cat: '草刈り', duration: 50, machineId: 'M02' },
+          { date: '2026/05/15', cat: '耕起', duration: 30, machineId: 'M01' },
+          { date: '2026/06/25', cat: '防除', duration: 15, machineId: 'M03' },
+          { date: '2026/07/02', cat: '施肥', duration: 5, machineId: 'M01' }
+        ];
+        const mockMach = {
+          M01: { id: 'M01', hourlyCostYen: 2000 },
+          M02: { id: 'M02', hourlyCostYen: 1500 },
+          M03: { id: 'M03', hourlyCostYen: 3000 }
+        };
+        const agg = w.aggregateMonthlyJunWorkStats(mockLogs, mockMach, { hourlyWageYen: 1500 });
+        assertEqual(agg.monthly.length, 3, '3 months aggregated');
+        assertEqual(agg.junSeries.length, 4, '4 jun buckets aggregated');
+
+        const pareto = w.computeParetoAbcAnalysis(agg.categories, 'hours');
+        assertEqual(pareto.valid, true, 'pareto valid');
+        assertEqual(pareto.items[0].cat, '草刈り', 'top bottleneck is 草刈り');
+        assertEqual(pareto.items[0].rank, 'A', '草刈り is rank A');
+        assertEqual(pareto.items[1].rank, 'A', '耕起 is rank A (50+30=80%)');
+
+        const sim = w.simulateBottleneckSavings(pareto, 20);
+        assertApprox(sim.savedHours, 16.0, 0.01, '20% of 80h = 16h saved');
+        assert(sim.savedCostYen > 0, 'positive cost savings');
+      });
+
       document.getElementById('summary').textContent = `TOTAL: ${passed + failed} | PASS: ${passed} | FAIL: ${failed}`;
       document.getElementById('summary').className = failed === 0 ? 'pass' : 'fail';
       document.getElementById('results').textContent = results.join('\n');

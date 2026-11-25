@@ -1048,6 +1048,9 @@
         <button data-action="switchReportType" data-arg="portfolio" id="repBtn-portfolio" class="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">
           🎯 5. AI経営分析：4象限ポートフォリオ
         </button>
+        <button data-action="switchReportType" data-arg="pareto" id="repBtn-pareto" class="px-4 py-2 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)]">
+          📉 6. AI労務分析：パレート(ABC)＆繁忙期
+        </button>
       </div>
       <div class="flex items-center gap-2">
         <button data-action="exportCsvData" class="px-4 py-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)] text-[var(--secondary-foreground)] text-xs font-bold hover:opacity-90">
@@ -1260,6 +1263,30 @@
           </div>
         </div>
         <div id="portfolioDashboardBody"></div>
+      </div>
+
+      <!-- 帳票⑥：TSK-040 時系列・労務パレート分析（ABC分析＆削減シミュレータ） -->
+      <div id="reportSheet-pareto" class="hidden">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b-2 border-slate-800 pb-3 mb-4">
+          <div>
+            <h2 class="text-xl font-bold tracking-wide text-slate-900">時系列・労務＆コスト パレート分析（ABC分析・ボトルネック特定）</h2>
+            <p class="text-xs text-slate-600 mt-0.5">月別・旬別の稼働ピークと、全体の80%を占めるボトルネック作業（Aランク）を自動特定し、省力化時の削減効果を試算します。</p>
+          </div>
+          <div class="no-print flex flex-wrap items-center gap-2">
+            <select id="paretoMetricSelect" data-change="changeParetoMetricMode" class="px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-300 text-xs font-bold text-slate-800">
+              <option value="hours">指標: 労働時間 (h)</option>
+              <option value="cost">指標: 労務＋機械コスト (円)</option>
+            </select>
+            <select id="paretoPeriodSelect" data-change="changeParetoPeriodMode" class="px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-300 text-xs font-bold text-slate-800">
+              <option value="month">時系列: 月別</option>
+              <option value="jun">時系列: 旬別（上/中/下旬）</option>
+            </select>
+            <button type="button" id="paretoDemoToggleBtn" data-action="toggleParetoDemoMode" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-800 border border-slate-300 hover:opacity-80 transition">
+              📊 年間サンプルデータで試算
+            </button>
+          </div>
+        </div>
+        <div id="paretoDashboardBody"></div>
       </div>
     </div>
   </section>
@@ -1831,11 +1858,11 @@
             🎤 1. 音声入力と毎日の作業日報・営農日誌のつけ方【タブ1】
           </h3>
           <div class="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-xs space-y-1.5">
-            <div class="font-bold text-rose-700 dark:text-rose-300">🎤 おすすめ！話すだけで一括入力（音声コマンド＆音声メモ）</div>
+            <div class="font-bold text-rose-700 dark:text-rose-300">🎤 話すだけで一括入力 ／ 🧠 AI今週の重点ToDo ／ 📷 JAN・QRスキャン選択</div>
             <ul class="list-disc list-inside space-y-1">
-              <li>画面上部やSTEP 0の<strong>「🎤 音声入力」</strong>を押し、マイクに向かって<strong>「本場1号から3号まで草刈り2時間半 乗用モア メモ 畦畔良好」</strong>のように話すだけで、対象圃場・作業分類・時間・袋数・機械・メモが自動でセットされます。</li>
-              <li>STEP 4の日誌メモ欄では<strong>「🎤 音声でメモ」</strong>ボタンから、生育観察や引き継ぎ事項をそのまま音声で書き起こせます。</li>
-              <li>音声非対応ブラウザや圏外時は、モーダル内のテキスト欄に文章を打ち込んでも同じように自動解析できます。</li>
+              <li><strong>🎤 音声コマンド＆音声メモ</strong>：画面上部やSTEP 0の<strong>「🎤 音声入力」</strong>を押し、<strong>「本場1号から3号まで草刈り2時間半 乗用モア メモ 畦畔良好」</strong>のように話すだけで自動入力。STEP 4の<strong>「🎤 音声でメモ」</strong>で書き起こしも可能です。</li>
+              <li><strong>🧠 AI営農アドバイザー（今週の重点ToDo）</strong>：タブ1最上部に、日誌メモ・見回りアラート・積算温度・気象予察から抽出した優先タスクが表示されます。<strong>「⚡ 1タップで入力へセット」</strong>を押すだけで対象圃場・作業分類・メモが自動入力されます。</li>
+              <li><strong>📷 JAN / QR スキャン自動資材選択</strong>：STEP 3の<strong>「📷 JAN/QRスキャン選択」</strong>から農薬ボトルや肥料袋のバーコードをかざすと資材を自動選択（第2混用農薬セット対応）。未登録JANもその場で既存資材に紐付け保存できます。</li>
             </ul>
           </div>
           <ol class="list-decimal list-inside space-y-1.5 text-xs md:text-sm">
@@ -1910,6 +1937,8 @@
             <li><strong>📄 ① JA提出「生産履歴記帳簿」／ 📋 ② 作業日報</strong>：品種・団地で絞り込み、<strong>「🖨️ A4フォーマットで一発印刷 / PDF保存」</strong>や<strong>「📥 Excel/CSV出力」</strong>で提出書類を即作成できます。</li>
             <li><strong>📊 ③ 圃場別「10a採算・粗利ランク（S〜C）」試算</strong>：肥料・農薬・労務・機械費と反収・屑米売上から10a粗利を自動計算。想定米価や時給を変えて即座にシミュレーションできます。</li>
             <li><strong>📈 ④ AI施肥分析（チッソ×反収 二次曲線回帰）</strong>：最小二乗法（y = ax² + bx + c）で<strong>最も反収が高くなる最適チッソ施肥量（ピーク値）</strong>を自動算出し、過剰施肥・施肥不足の田んぼをグラフと表で診断します（サンプル7筆デモ試算対応）。</li>
+            <li><strong>🎯 ⑤ AI経営分析（全圃場 4象限ポートフォリオ）</strong>：「10a粗利益 × 10a作業時間 × 面積」のバブルチャートで全圃場を<strong>🌟優良主力田／🔧改善余地田／💦労力過多田／⚠️要見直し田</strong>へ自動分類。バブルクリックでGISカルテへ直接移動できます。</li>
+            <li><strong>📉 ⑥ AI労務分析（パレートABC＆繁忙期推移）</strong>：月別・旬別の稼働ピークと、全体の80%を占める<strong>Aランク・ボトルネック作業</strong>を自動特定。省力化スライダー（10〜30%減）で年間削減コストと創出時間を即試算できます。</li>
           </ul>
         </div>
 
@@ -2077,6 +2106,7 @@
   <script src="./js/features/reports.js"></script>
   <script src="./js/features/regressionAnalytics.js"></script>
   <script src="./js/features/portfolioAnalytics.js"></script>
+  <script src="./js/features/paretoAnalytics.js"></script>
   <script src="./js/features/weatherAdvisory.js"></script>
   <script src="./js/features/aiAdvisor.js"></script>
   <script src="./js/features/voiceInput.js"></script>

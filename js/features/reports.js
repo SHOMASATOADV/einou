@@ -1,6 +1,6 @@
 // Feature: JA / Gov A4 Reports & CSV Export
 function switchReportType(type) {
-  ['ja', 'daily', 'yield', 'regression', 'portfolio'].forEach(t => {
+  ['ja', 'daily', 'yield', 'regression', 'portfolio', 'pareto'].forEach(t => {
     const sheet = document.getElementById('reportSheet-' + t);
     const btn = document.getElementById('repBtn-' + t);
     if (!sheet || !btn) return;
@@ -17,6 +17,9 @@ function switchReportType(type) {
   }
   if (type === 'portfolio' && typeof renderPortfolioDashboard === 'function') {
     renderPortfolioDashboard();
+  }
+  if (type === 'pareto' && typeof renderParetoDashboard === 'function') {
+    renderParetoDashboard();
   }
 }
 
@@ -398,6 +401,9 @@ function renderReportsTab() {
   }
   if (typeof renderPortfolioDashboard === 'function') {
     renderPortfolioDashboard();
+  }
+  if (typeof renderParetoDashboard === 'function') {
+    renderParetoDashboard();
   }
 }
 
