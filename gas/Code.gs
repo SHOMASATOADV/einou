@@ -17,6 +17,7 @@ const SHEET_NAMES = {
   MACHINES: 'M_MACHINES',
   WORK_LOGS: 'T_WORK_LOGS',
   LOG_FIELDS: 'T_LOG_FIELDS',
+  WORK_ORDERS: 'T_WORK_ORDERS',
   REPORT_JA: 'A4帳票_JA生産履歴記帳簿',
   REPORT_DAILY: 'A4帳票_作業日報集計表',
   IMP_RAW: 'IMP_他社データ移行貼付'
@@ -802,6 +803,56 @@ function doPost(e) {
         processPendingLogs_();
       }
     }
+    // (6) T_WORK_ORDERS: 複数スタッフ間のリアルタイム作業指示・進捗共有（TSK-031）
+    let syncedOrdersCount = 0;
+    if (payload.workOrders && Array.isArray(payload.workOrders) && payload.workOrders.length > 0) {
+      const orderSheet = getOrCreateSheet_(ss, SHEET_NAMES.WORK_ORDERS);
+      if (orderSheet.getLastRow() === 0) {
+        const orderHeader = ['order_id', 'target_date', 'work_category', 'assignee', 'field_ids', 'note', 'status', 'created_by', 'created_at', 'completed_by', 'completed_at'];
+        orderSheet.getRange(1, 1, 1, orderHeader.length).setValues([orderHeader]);
+        styleHeaderRow_(orderSheet, orderHeader.length, '#0369a1');
+      }
+      const existingOrderRows = orderSheet.getDataRange().getValues();
+      const rowIdxById = {};
+      for (let i = 1; i < existingOrderRows.length; i++) {
+        const oid = String(existingOrderRows[i][0] || '').trim();
+        if (oid) rowIdxById[oid] = i;
+      }
+      const appendOrderRows = [];
+      let updatedExisting = false;
+      payload.workOrders.forEach(o => {
+        if (!o || !o.id) return;
+        const oid = String(o.id).trim();
+        const rowArr = [
+          oid,
+          o.targetDate || '',
+          o.cat || '',
+          o.assignee || '全員',
+          Array.isArray(o.fieldIds) ? o.fieldIds.join(',') : String(o.fieldIds || ''),
+          o.note || '',
+          o.status || 'PENDING',
+          o.createdBy || '',
+          o.createdAt || '',
+          o.completedBy || '',
+          o.completedAt || ''
+        ];
+        if (rowIdxById[oid] !== undefined) {
+          existingOrderRows[rowIdxById[oid]] = rowArr;
+          updatedExisting = true;
+        } else {
+          rowIdxById[oid] = existingOrderRows.length + appendOrderRows.length;
+          appendOrderRows.push(rowArr);
+        }
+        syncedOrdersCount++;
+      });
+      if (updatedExisting && existingOrderRows.length > 1) {
+        orderSheet.getRange(2, 1, existingOrderRows.length - 1, existingOrderRows[0].length).setValues(existingOrderRows.slice(1));
+      }
+      if (appendOrderRows.length > 0) {
+        orderSheet.getRange(orderSheet.getLastRow() + 1, 1, appendOrderRows.length, appendOrderRows[0].length).setValues(appendOrderRows);
+      }
+    }
+
     lock.releaseLock();
 
     if (insertedIds.length > 0 || insertedFieldsCount > 0) refreshA4ReportSheet();
@@ -811,6 +862,7 @@ function doPost(e) {
       syncedCount: insertedIds.length,
       skippedCount: skippedIds.length,
       insertedFieldsCount: insertedFieldsCount,
+      syncedOrdersCount: syncedOrdersCount,
       // PWA側はこのIDだけを「同期済」にする（新規登録＋既に登録済み）
       acceptedIds: insertedIds.concat(skippedIds)
     });
@@ -924,6 +976,30 @@ function doGet(e) {
       }
     }
 
+    const workOrders = [];
+    const orderSheet = ss.getSheetByName(SHEET_NAMES.WORK_ORDERS);
+    if (orderSheet && orderSheet.getLastRow() > 1) {
+      const rows = orderSheet.getDataRange().getValues();
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        const oid = String(r[0] || '').trim();
+        if (!oid) continue;
+        workOrders.push({
+          id: oid,
+          targetDate: formatDateValue_(r[1]),
+          cat: String(r[2] || '草刈り'),
+          assignee: String(r[3] || '全員'),
+          fieldIds: String(r[4] || '').split(',').map(s => s.trim()).filter(Boolean),
+          note: String(r[5] || ''),
+          status: String(r[6] || 'PENDING'),
+          createdBy: String(r[7] || ''),
+          createdAt: String(r[8] || ''),
+          completedBy: String(r[9] || ''),
+          completedAt: String(r[10] || '')
+        });
+      }
+    }
+
     return jsonResponse_({
       status: 'ok',
       action: params.action || 'masters',
@@ -932,12 +1008,14 @@ function doGet(e) {
         fields: fields.length,
         fertilizers: Object.keys(fertilizers).length,
         pesticides: Object.keys(pesticides).length,
-        machines: Object.keys(machines).length
+        machines: Object.keys(machines).length,
+        workOrders: workOrders.length
       },
       fields: fields,
       fertilizers: fertilizers,
       pesticides: pesticides,
-      machines: machines
+      machines: machines,
+      workOrders: workOrders
     });
   } catch (err) {
     return jsonResponse_({ status: 'error', message: err.toString() });

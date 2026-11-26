@@ -13,6 +13,7 @@ const DEFAULT_STATE = {
     wasteRicePricePerKgYen: 50
   },
   workLogs: [],
+  workOrders: [],
   gasWebhookUrl: ''
 };
 

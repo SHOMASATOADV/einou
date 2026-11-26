@@ -216,6 +216,11 @@ async function syncFromGasBackend() {
     });
   }
 
+  // 3. チーム作業指示（TSK-031）のマージ
+  if (Array.isArray(resJson.workOrders) && typeof mergeWorkOrders_ === 'function') {
+    workOrders = mergeWorkOrders_(workOrders || [], resJson.workOrders);
+  }
+
   ensureFieldBaselines();
   recalculateFieldStats();
   saveStateToStorage();
@@ -558,7 +563,7 @@ function executeMigrationImport() {
 }
 
 function exportFullBackupJson() {
-  const blob = new Blob([JSON.stringify({ fieldsData, fertilizers, pesticides, machines, workLogs, costSettings, gasWebhookUrl }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ fieldsData, fertilizers, pesticides, machines, workLogs, workOrders, costSettings, gasWebhookUrl }, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

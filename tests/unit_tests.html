@@ -466,6 +466,32 @@
         assert(sim.savedCostYen > 0, 'positive cost savings');
       });
 
+      test('TSK-030: parseFamicCsvText & applyFamicUpdatesToPesticides', () => {
+        const csv = '登録番号,農薬の名称,有効成分,作物名,使用時期,総使用回数\n20142,アミスターフロアブル,アゾキシストロビン,水稲,収穫14日前まで,2回以内\n99999,別作物剤,成分X,キャベツ,収穫7日前まで,3回以内';
+        const recs = w.parseFamicCsvText(csv);
+        assertEqual(recs.length, 1, 'only rice crop record parsed');
+        assertEqual(recs[0].phiDays, 14, 'PHI 14 extracted');
+        assertEqual(recs[0].maxUse, 2, 'maxUse 2 extracted');
+
+        const mockPests = { P01: { id: 'P01', name: 'アミスターフロアブル', regNo: '第20142号', activeIngredient: '', maxUse: 3, phiDays: 7 } };
+        const res = w.applyFamicUpdatesToPesticides(recs, mockPests);
+        assertEqual(res.updatedCount, 1, '1 pesticide updated');
+        assertEqual(mockPests.P01.phiDays, 14, 'PHI updated to 14');
+        assertEqual(mockPests.P01.maxUse, 2, 'maxUse updated to 2');
+      });
+
+      test('TSK-031: mergeWorkOrders_ merges remote DONE status safely', () => {
+        const local = [{ id: 'WO-1', status: 'PENDING', createdAt: '2026-11-26T08:00:00Z', completedAt: '' }];
+        const remote = [
+          { id: 'WO-1', status: 'DONE', completedBy: '高橋 誠', completedAt: '2026-11-26T10:30:00Z' },
+          { id: 'WO-2', status: 'PENDING', createdAt: '2026-11-26T09:00:00Z' }
+        ];
+        const merged = w.mergeWorkOrders_(local, remote);
+        assertEqual(merged.length, 2, '2 orders merged');
+        const wo1 = merged.find(o => o.id === 'WO-1');
+        assertEqual(wo1.status, 'DONE', 'DONE status propagated from remote');
+      });
+
       document.getElementById('summary').textContent = `TOTAL: ${passed + failed} | PASS: ${passed} | FAIL: ${failed}`;
       document.getElementById('summary').className = failed === 0 ? 'pass' : 'fail';
       document.getElementById('results').textContent = results.join('\n');

@@ -6,6 +6,7 @@ const AppState = {
   machines: {},
   costSettings: { hourlyWageYen: 1500, ricePricePerTawaraYen: 18500, wasteRicePricePerKgYen: 50 },
   workLogs: [],
+  workOrders: [],
   gasWebhookUrl: '',
   gasSyncToken: ''
 };
@@ -164,6 +165,7 @@ function getPersistPayload_() {
     machines,
     costSettings,
     workLogs,
+    workOrders,
     gasWebhookUrl,
     gasSyncToken,
     _savedAt: new Date().toISOString()
@@ -214,6 +216,7 @@ function applyParsedState_(parsed) {
 
   costSettings = { ...def.costSettings, ...(parsed.costSettings || {}) };
   workLogs = Array.isArray(parsed.workLogs) ? parsed.workLogs : def.workLogs;
+  workOrders = Array.isArray(parsed.workOrders) ? parsed.workOrders : (def.workOrders || []);
   workLogs.forEach(l => {
     const defLog = def.workLogs.find(dl => dl.id === l.id);
     if (!l.weather) l.weather = defLog?.weather || '☀️ 晴れ';

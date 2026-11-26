@@ -23,6 +23,8 @@ function refreshAllViews() {
   updateSyncBadge();
   refreshInteractiveMaps_();
   if (typeof renderAiAdvisorPanel === 'function') renderAiAdvisorPanel();
+  if (typeof renderTeamDispatchPanel === 'function') renderTeamDispatchPanel();
+  if (typeof renderFamicSyncStatus === 'function') renderFamicSyncStatus();
 }
 
 function initApp() {
@@ -72,6 +74,12 @@ function initApp() {
   }
   if (typeof renderAiAdvisorPanel === 'function') {
     renderAiAdvisorPanel();
+  }
+  if (typeof renderTeamDispatchPanel === 'function') {
+    renderTeamDispatchPanel();
+  }
+  if (typeof renderFamicSyncStatus === 'function') {
+    renderFamicSyncStatus();
   }
   applyOutdoorModeFromStorage_();
 
@@ -216,6 +224,15 @@ const ACTION_HANDLERS = {
   testBarcodeSample: (el) => testBarcodeSample(el.dataset.arg),
   applyScannedMaterialToForm: (el) => applyScannedMaterialToForm(el.dataset.arg),
   bindScannedBarcodeToExistingMaterial: () => bindScannedBarcodeToExistingMaterial(),
+  runFamicBuiltInSync: () => runFamicBuiltInSync(),
+  handleFamicCsvUpload: (el, ev) => handleFamicCsvUpload(ev),
+  createTeamWorkOrder: () => createTeamWorkOrder(),
+  toggleTeamWorkOrderDone: (el) => toggleTeamWorkOrderDone(el.dataset.arg),
+  jumpToInputFromWorkOrder: (el) => jumpToInputFromWorkOrder(el.dataset.arg),
+  deleteTeamWorkOrder: (el) => deleteTeamWorkOrder(el.dataset.arg),
+  setTeamDispatchFilter: (el) => setTeamDispatchFilter(el.dataset.arg),
+  toggleTeamDispatchPanel: () => toggleTeamDispatchPanel(),
+  syncTeamOrdersWithGas: (el) => syncTeamOrdersWithGas(el.dataset.arg || 'pull', false),
   closeModalOnBackdrop: (el, ev) => {
     if (ev.target === el) ModalManager.close(el.id);
   }
