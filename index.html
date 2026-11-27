@@ -1932,17 +1932,19 @@
             <li><strong>リアルタイム気象＆ドローン防除可否バー</strong>：画面上部の気象バーに現在の天気・気温・湿度・風速を表示。<strong>風速 4.0m/s 以上で「🚫 ドローン防除NG」</strong>を自動判定し、「▼ 7日間予報・AI予察を見る」で週間予報と詳細アラートを確認できます。</li>
             <li><strong>高温登熟・病害虫AI予察</strong>：Open-Meteo気象APIと自動連携し、出穂後20日間の<strong>白未熟粒・胴割れ警報（27℃超／35℃猛暑日）</strong>や、連続降雨・多湿からの<strong>いもち病・斑点米カメムシ予察</strong>をヘッダーと【タブ2】圃場カルテへ自動通知します。</li>
             <li><strong>積算温度（1,000℃刈取予測）＆見回りアラート</strong>：【タブ2】カルテで出穂日を設定すると刈取適期予測日を自動計算。獣害・水漏れ等の見回りメモをピン留めするとマップ上に赤い <code class="px-1 rounded bg-red-500/20 text-red-600 font-bold">⚠️</code> バッジが表示されます。</li>
+            <li><strong>👥 複数スタッフ作業指示・進捗共有</strong>：【タブ2】最上部のチームパネルで管理者が対象圃場・担当者・メモを指定して指示発行。作業者は<strong>「📱 日誌入力へ」</strong>でフォームへ転送し、作業後は<strong>「✅ 完了タップ」</strong>でクラウド（GAS）へ即時共有できます。</li>
           </ul>
         </div>
 
         <!-- 4. 機械・資材在庫＆食味OCR -->
         <div id="manual-sec-4" class="space-y-2">
           <h3 class="text-sm md:text-base font-bold text-emerald-600 border-b border-[var(--border)] pb-1.5">
-            🚜 4. 機械点検・資材在庫（液剤mL/粒剤kg）＆ 食味計OCR【タブ1・タブ3】
+            🚜 4. 機械点検・資材在庫（液剤mL/粒剤kg）・FAMIC基準更新＆食味OCR【タブ1・タブ3】
           </h3>
           <ul class="list-disc list-inside space-y-1.5 text-xs md:text-sm">
             <li><strong>農機具の稼働管理＆点検リセット</strong>：【タブ3】から機材を追加可能。日誌登録でアワーが自動加算され、オイル交換時期が近づくと警告します。整備後は「🔧 点検済」でリセットできます。</li>
             <li><strong>肥料・農薬在庫の自動引落＆補充</strong>：農薬は<strong>液剤(mL)／粒剤(kg)</strong>の両方に対応し、残量をリアルタイム計算。購入時は「＋入庫補充」ボタンで簡単に在庫を増やせます。</li>
+            <li><strong>🏛️ FAMIC 農薬登録基準（使用回数・PHI）自動更新</strong>：【タブ3】の<strong>「🔄 最新FAMIC基準で一括照合」</strong>または<strong>「📥 FAMIC公式CSV取込」</strong>を押すと、登録番号・名称から水稲向け最新の使用回数上限・収穫前日数(PHI)へ自動更新されます。</li>
             <li><strong>📸 食味計・検査伝票OCR</strong>：収穫入力画面の「📸 食味計・伝票を写真読取」から撮影すると、食味値・水分・タンパク・整粒歩合・等級を自動抽出してフォームへ反映できます（Gemini APIキーは【タブ5】で設定可能）。</li>
           </ul>
         </div>
