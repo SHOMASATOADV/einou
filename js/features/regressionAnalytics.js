@@ -6,8 +6,6 @@
 //   - TSK-036-4: 最適施肥診断＆過剰・不足アラート出力
 // =========================================================================
 
-window._regressionUseDemoData = false;
-
 const REGRESSION_DEMO_POINTS = [
   { id: 'DEMO-1', name: '① 本場1号(参考)', crop: 'コシヒカリ (BL)', area: 30, nPer10a: 3.2, yieldPer10a: 492 },
   { id: 'DEMO-2', name: '② 本場2号(参考)', crop: 'コシヒカリ (BL)', area: 20, nPer10a: 4.5, yieldPer10a: 538 },
@@ -180,7 +178,7 @@ function diagnoseNitrogenStatus(point, optX, tolerance = 0.8) {
 }
 
 function toggleRegressionDemoMode() {
-  window._regressionUseDemoData = !window._regressionUseDemoData;
+  UiState.regressionUseDemoData = !UiState.regressionUseDemoData;
   renderNitrogenRegressionDashboard();
 }
 
@@ -191,32 +189,16 @@ function renderNitrogenRegressionDashboard() {
   const container = document.getElementById('regressionDashboardBody');
   if (!container) return;
 
-  const cropSel = document.getElementById('regressionCropFilter');
-  if (cropSel) {
-    const curVal = cropSel.value || 'ALL';
-    const crops = [...new Set([
-      ...(fieldsData || []).map(f => f.crop).filter(Boolean),
-      ...(window._regressionUseDemoData ? REGRESSION_DEMO_POINTS.map(p => p.crop) : [])
-    ])];
-    cropSel.innerHTML = [
-      '<option value="ALL">すべての品種（全圃場）</option>',
-      ...crops.map(c => safeHtml`<option value="${c}">🌾 ${c}</option>`)
-    ].join('');
-    cropSel.value = [...cropSel.options].some(o => o.value === curVal) ? curVal : 'ALL';
-  }
-  const cropFilter = cropSel ? cropSel.value : 'ALL';
+  const isDemo = Boolean(UiState.regressionUseDemoData);
+  const cropFilter = syncCropFilterSelect_('regressionCropFilter', isDemo ? REGRESSION_DEMO_POINTS : []);
+  updateDemoToggleButton_(
+    'regressionDemoToggleBtn',
+    isDemo,
+    '✅ デモ試算モード中（実データへ戻す）',
+    '📊 サンプル7筆で回帰曲線を試算'
+  );
 
-  const demoBtn = document.getElementById('regressionDemoToggleBtn');
-  if (demoBtn) {
-    demoBtn.textContent = window._regressionUseDemoData
-      ? '✅ デモ試算モード中（実データへ戻す）'
-      : '📊 サンプル7筆で回帰曲線を試算';
-    demoBtn.className = window._regressionUseDemoData
-      ? 'px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 transition'
-      : 'px-3 py-1.5 rounded-xl text-xs font-bold bg-[var(--secondary)] text-[var(--secondary-foreground)] border border-[var(--border)] hover:opacity-80 transition';
-  }
-
-  const points = collectNitrogenYieldPairs(cropFilter, window._regressionUseDemoData);
+  const points = collectNitrogenYieldPairs(cropFilter, isDemo);
   const reg = computeQuadraticRegression(points);
 
   if (!reg.valid) {
@@ -248,8 +230,12 @@ function renderNitrogenRegressionDashboard() {
   const minY = Math.max(0, Math.floor((Math.min(...ys) - 40) / 20) * 20);
   const maxY = Math.ceil((Math.max(...ys) + 40) / 20) * 20;
 
-  const mapX = (x) => padL + ((x - minX) / Math.max(0.1, maxX - minX)) * plotW;
-  const mapY = (y) => padT + plotH - ((y - minY) / Math.max(1, maxY - minY)) * plotH;
+  const { svg: axesGridSvg, mapX, mapY } = renderSvgAxesAndGrid_({
+    W, H, padL, padR, padT, padB, minX, maxX, minY, maxY,
+    xSteps: 5, ySteps: 4,
+    xFormatter: (v) => v.toFixed(1),
+    yFormatter: (v) => String(Math.round(v))
+  });
 
   // 滑らかな二次曲線パス生成
   const curveSteps = 60;
@@ -262,22 +248,6 @@ function renderNitrogenRegressionDashboard() {
     }
   }
   const curvePath = curvePts.length > 1 ? `M ${curvePts.join(' L ')}` : '';
-
-  // グリッド線
-  let gridSvg = '';
-  for (let i = 0; i <= 4; i++) {
-    const yVal = minY + ((maxY - minY) * i) / 4;
-    const yp = mapY(yVal);
-    gridSvg += `<line x1="${padL}" y1="${yp}" x2="${W - padR}" y2="${yp}" stroke="#e2e8f0" stroke-dasharray="3,3" />`;
-    gridSvg += `<text x="${padL - 8}" y="${yp + 4}" text-anchor="end" font-size="11" fill="#475569">${Math.round(yVal)}</text>`;
-  }
-  const xTicks = 5;
-  for (let i = 0; i <= xTicks; i++) {
-    const xVal = minX + ((maxX - minX) * i) / xTicks;
-    const xp = mapX(xVal);
-    gridSvg += `<line x1="${xp}" y1="${padT}" x2="${xp}" y2="${H - padB}" stroke="#e2e8f0" stroke-dasharray="3,3" />`;
-    gridSvg += `<text x="${xp}" y="${H - padB + 18}" text-anchor="middle" font-size="11" fill="#475569">${xVal.toFixed(1)}</text>`;
-  }
 
   // 最適施肥帯ハイライト
   const bandX1 = Math.max(padL, mapX(reg.optX - 0.8));
@@ -300,7 +270,7 @@ function renderNitrogenRegressionDashboard() {
   const dotsSvg = diagnosed.map(d => {
     const cx = mapX(d.nPer10a);
     const cy = mapY(d.yieldPer10a);
-    const clickableAttr = !window._regressionUseDemoData
+    const clickableAttr = !isDemo
       ? `data-action="inspectFieldFromRegression" data-arg="${escapeHtml(d.id)}" style="cursor:pointer"`
       : '';
     return `
@@ -316,9 +286,7 @@ function renderNitrogenRegressionDashboard() {
   const svgHtml = `
     <svg viewBox="0 0 ${W} ${H}" class="w-full h-auto bg-white rounded-xl border border-slate-300">
       ${bandSvg}
-      ${gridSvg}
-      <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="#64748b" stroke-width="1.5" />
-      <line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#64748b" stroke-width="1.5" />
+      ${axesGridSvg}
       <path d="${curvePath}" fill="none" stroke="#059669" stroke-width="3" stroke-linecap="round" />
       ${peakSvg}
       ${dotsSvg}
@@ -408,3 +376,9 @@ function inspectFieldFromRegression(fieldId) {
   switchMainTab('gis');
   inspectField(fieldId);
 }
+
+registerActionHandlers({
+  toggleRegressionDemoMode: () => toggleRegressionDemoMode(),
+  renderNitrogenRegressionDashboard: () => renderNitrogenRegressionDashboard(),
+  inspectFieldFromRegression: (el) => inspectFieldFromRegression(el.dataset.arg)
+});

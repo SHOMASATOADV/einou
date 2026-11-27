@@ -189,3 +189,13 @@ function dateKey_(d) {
   return raw;
 }
 
+// =========================================================================
+// RF-19: 疎結合イベント委任レジストリ（各機能モジュールが自己登録可能）
+// =========================================================================
+const ACTION_HANDLERS = {};
+
+function registerActionHandlers(handlerMap) {
+  if (!handlerMap || typeof handlerMap !== 'object') return;
+  Object.assign(ACTION_HANDLERS, handlerMap);
+}
+

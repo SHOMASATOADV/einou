@@ -204,3 +204,8 @@ function handleFamicCsvUpload(ev) {
   };
   reader.readAsText(file, 'UTF-8');
 }
+
+registerActionHandlers({
+  runFamicBuiltInSync: () => runFamicBuiltInSync(),
+  handleFamicCsvUpload: (el, ev) => handleFamicCsvUpload(ev)
+});

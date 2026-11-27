@@ -697,7 +697,7 @@ function importExternalAppData() {
 }
 
 /**
- * 6. スマホPWAアプリ（オフライン対応Webアプリ）からのPOST同期受信エンドポイント
+ * 6. スマホPWAアプリ（オフライン対応Webアプリ）からのPOST同期受信エンドポイント（RF-22 分割整理）
  */
 function doPost(e) {
   const lock = LockService.getScriptLock();
@@ -706,152 +706,12 @@ function doPost(e) {
     const authErr = verifySyncToken_(payload && payload.token);
     if (authErr) return jsonResponse_({ status: 'error', message: authErr });
 
-    // 同時送信（複数スマホ）による二重登録を防ぐため排他ロック
     lock.waitLock(30000);
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const logSheet = ss.getSheetByName(SHEET_NAMES.WORK_LOGS);
-    const fieldsSheet = ss.getSheetByName(SHEET_NAMES.FIELDS);
-
-    // 新規移行された圃場があれば M_FIELDS にも追加（既存IDはスキップ）
-    let insertedFieldsCount = 0;
-    if (payload.fields && Array.isArray(payload.fields) && fieldsSheet) {
-      const existingIdSet = {};
-      fieldsSheet.getDataRange().getValues().slice(1).forEach(r => { existingIdSet[String(r[0]).trim()] = true; });
-      const newFieldRows = [];
-      payload.fields.forEach(f => {
-        const fid = String(f.id || '').trim();
-        if (!fid || existingIdSet[fid]) return;
-        existingIdSet[fid] = true;
-        newFieldRows.push([
-          fid, fid, f.name, f.lot || '-', f.group || '移行団地', f.area || 20,
-          f.crop || 'コシヒカリ(BL)', f.harvest || '2026-09-20', f.stage || '未着手',
-          f.lat || 37.9165, f.lng || 139.0370, f.nPer10a || 0, f.pPer10a || 0, f.kPer10a || 0
-        ]);
-      });
-      if (newFieldRows.length > 0) {
-        fieldsSheet.getRange(fieldsSheet.getLastRow() + 1, 1, newFieldRows.length, newFieldRows[0].length).setValues(newFieldRows);
-        insertedFieldsCount = newFieldRows.length;
-      }
-    }
-
-    // 作業日誌の受信（work_log_id による重複排除 → 何度再送しても二重計上されない＝べき等）
-    const insertedIds = [];
-    const skippedIds = [];
-    if (payload.logs && Array.isArray(payload.logs) && payload.logs.length > 0) {
-      const existingLogIdSet = {};
-      logSheet.getDataRange().getValues().slice(1).forEach(r => { existingLogIdSet[String(r[0]).trim()] = true; });
-
-      const newLogRows = [];
-      payload.logs.forEach(item => {
-        if (!item) return;
-        const logId = String(item.id || '').trim();
-        if (!logId) return; // IDなしは重複判定できないため受け付けない
-        if (existingLogIdSet[logId]) {
-          skippedIds.push(logId);
-          return;
-        }
-        existingLogIdSet[logId] = true;
-        insertedIds.push(logId);
-        const weatherDetails = [];
-        if (item.tempC !== undefined && item.tempC !== '') weatherDetails.push(`${item.tempC}℃`);
-        if (item.rainfallMm !== undefined && Number(item.rainfallMm) > 0) weatherDetails.push(`降水${item.rainfallMm}mm`);
-        if (item.windDir || (item.windSpeedMs !== undefined && item.windSpeedMs !== '')) {
-          const wDir = item.windDir && item.windDir !== '静穏' ? `${item.windDir} ` : '';
-          const wSpd = (item.windSpeedMs !== undefined && item.windSpeedMs !== '') ? `${item.windSpeedMs}m/s` : '';
-          const wStr = `${wDir}${wSpd}`.trim();
-          if (wStr) weatherDetails.push(`風:${wStr}`);
-        }
-        const weatherPrefix = item.weather
-          ? `[${item.weather}${weatherDetails.length > 0 ? ` ${weatherDetails.join(' / ')}` : ''}] `
-          : '';
-        const memoSuffix = item.memo ? ` ／ 📔${item.memo}` : '';
-        const tasteParts = [];
-        if (item.tasteScore !== undefined && item.tasteScore !== null && item.tasteScore !== '') tasteParts.push('食味' + item.tasteScore + '点');
-        if (item.protein !== undefined && item.protein !== null && item.protein !== '') tasteParts.push('タンパク' + item.protein + '%');
-        if (item.wholeGrainRate !== undefined && item.wholeGrainRate !== null && item.wholeGrainRate !== '') tasteParts.push('整粒' + item.wholeGrainRate + '%');
-        if (item.amylose !== undefined && item.amylose !== null && item.amylose !== '') tasteParts.push('アミロース' + item.amylose + '%');
-        if (item.fattyAcid !== undefined && item.fattyAcid !== null && item.fattyAcid !== '') tasteParts.push('脂肪酸度' + item.fattyAcid);
-        if (item.tasteLotNo) tasteParts.push('伝票:' + item.tasteLotNo);
-        const baseSummary = String(item.materialSummary || '');
-        const tasteSuffix = (tasteParts.length > 0 && baseSummary.indexOf('食味') === -1) ? (' [' + tasteParts.join(' / ') + ']') : '';
-        const combinedNotes = `${weatherPrefix}${baseSummary}${tasteSuffix}${memoSuffix}`;
-        newLogRows.push([
-          logId,
-          item.date,
-          item.cat,
-          item.worker || '佐藤 健一',
-          (item.fieldIds || []).join(','),
-          item.totalArea || 0,
-          item.duration || 0,
-          item.machineId || '',
-          item.materialId || '',
-          item.inputQty || 0,
-          item.totalKg || 0,
-          item.dilutionRate || 0,
-          item.waterL || 0,
-          item.n10a || 0,
-          item.p10a || 0,
-          item.k10a || 0,
-          combinedNotes,
-          '' // 未按分フラグ → 直後の processPendingLogs_() で自動按分展開
-        ]);
-      });
-
-      if (newLogRows.length > 0) {
-        logSheet.getRange(logSheet.getLastRow() + 1, 1, newLogRows.length, newLogRows[0].length).setValues(newLogRows);
-        processPendingLogs_();
-      }
-    }
-    // (6) T_WORK_ORDERS: 複数スタッフ間のリアルタイム作業指示・進捗共有（TSK-031）
-    let syncedOrdersCount = 0;
-    if (payload.workOrders && Array.isArray(payload.workOrders) && payload.workOrders.length > 0) {
-      const orderSheet = getOrCreateSheet_(ss, SHEET_NAMES.WORK_ORDERS);
-      if (orderSheet.getLastRow() === 0) {
-        const orderHeader = ['order_id', 'target_date', 'work_category', 'assignee', 'field_ids', 'note', 'status', 'created_by', 'created_at', 'completed_by', 'completed_at'];
-        orderSheet.getRange(1, 1, 1, orderHeader.length).setValues([orderHeader]);
-        styleHeaderRow_(orderSheet, orderHeader.length, '#0369a1');
-      }
-      const existingOrderRows = orderSheet.getDataRange().getValues();
-      const rowIdxById = {};
-      for (let i = 1; i < existingOrderRows.length; i++) {
-        const oid = String(existingOrderRows[i][0] || '').trim();
-        if (oid) rowIdxById[oid] = i;
-      }
-      const appendOrderRows = [];
-      let updatedExisting = false;
-      payload.workOrders.forEach(o => {
-        if (!o || !o.id) return;
-        const oid = String(o.id).trim();
-        const rowArr = [
-          oid,
-          o.targetDate || '',
-          o.cat || '',
-          o.assignee || '全員',
-          Array.isArray(o.fieldIds) ? o.fieldIds.join(',') : String(o.fieldIds || ''),
-          o.note || '',
-          o.status || 'PENDING',
-          o.createdBy || '',
-          o.createdAt || '',
-          o.completedBy || '',
-          o.completedAt || ''
-        ];
-        if (rowIdxById[oid] !== undefined) {
-          existingOrderRows[rowIdxById[oid]] = rowArr;
-          updatedExisting = true;
-        } else {
-          rowIdxById[oid] = existingOrderRows.length + appendOrderRows.length;
-          appendOrderRows.push(rowArr);
-        }
-        syncedOrdersCount++;
-      });
-      if (updatedExisting && existingOrderRows.length > 1) {
-        orderSheet.getRange(2, 1, existingOrderRows.length - 1, existingOrderRows[0].length).setValues(existingOrderRows.slice(1));
-      }
-      if (appendOrderRows.length > 0) {
-        orderSheet.getRange(orderSheet.getLastRow() + 1, 1, appendOrderRows.length, appendOrderRows[0].length).setValues(appendOrderRows);
-      }
-    }
+    const insertedFieldsCount = upsertFieldsFromPayload_(ss, payload.fields);
+    const { insertedIds, skippedIds } = appendLogsFromPayload_(ss, payload.logs);
+    const syncedOrdersCount = upsertWorkOrdersFromPayload_(ss, payload.workOrders);
 
     lock.releaseLock();
 
@@ -863,13 +723,137 @@ function doPost(e) {
       skippedCount: skippedIds.length,
       insertedFieldsCount: insertedFieldsCount,
       syncedOrdersCount: syncedOrdersCount,
-      // PWA側はこのIDだけを「同期済」にする（新規登録＋既に登録済み）
       acceptedIds: insertedIds.concat(skippedIds)
     });
   } catch (err) {
     try { lock.releaseLock(); } catch (e2) {}
     return jsonResponse_({ status: 'error', message: err.toString() });
   }
+}
+
+function upsertFieldsFromPayload_(ss, fields) {
+  const fieldsSheet = ss.getSheetByName(SHEET_NAMES.FIELDS);
+  if (!fields || !Array.isArray(fields) || !fieldsSheet) return 0;
+  const existingIdSet = {};
+  fieldsSheet.getDataRange().getValues().slice(1).forEach(r => { existingIdSet[String(r[0]).trim()] = true; });
+  const newFieldRows = [];
+  fields.forEach(f => {
+    const fid = String(f.id || '').trim();
+    if (!fid || existingIdSet[fid]) return;
+    existingIdSet[fid] = true;
+    newFieldRows.push([
+      fid, fid, f.name, f.lot || '-', f.group || '移行団地', f.area || 20,
+      f.crop || 'コシヒカリ(BL)', f.harvest || '2026-09-20', f.stage || '未着手',
+      f.lat || 37.9165, f.lng || 139.0370, f.nPer10a || 0, f.pPer10a || 0, f.kPer10a || 0
+    ]);
+  });
+  if (newFieldRows.length > 0) {
+    fieldsSheet.getRange(fieldsSheet.getLastRow() + 1, 1, newFieldRows.length, newFieldRows[0].length).setValues(newFieldRows);
+  }
+  return newFieldRows.length;
+}
+
+function buildCombinedLogNotes_(item) {
+  const weatherDetails = [];
+  if (item.tempC !== undefined && item.tempC !== '') weatherDetails.push(`${item.tempC}℃`);
+  if (item.rainfallMm !== undefined && Number(item.rainfallMm) > 0) weatherDetails.push(`降水${item.rainfallMm}mm`);
+  if (item.windDir || (item.windSpeedMs !== undefined && item.windSpeedMs !== '')) {
+    const wDir = item.windDir && item.windDir !== '静穏' ? `${item.windDir} ` : '';
+    const wSpd = (item.windSpeedMs !== undefined && item.windSpeedMs !== '') ? `${item.windSpeedMs}m/s` : '';
+    const wStr = `${wDir}${wSpd}`.trim();
+    if (wStr) weatherDetails.push(`風:${wStr}`);
+  }
+  const weatherPrefix = item.weather
+    ? `[${item.weather}${weatherDetails.length > 0 ? ` ${weatherDetails.join(' / ')}` : ''}] `
+    : '';
+  const memoSuffix = item.memo ? ` ／ 📔${item.memo}` : '';
+  const tasteParts = [];
+  if (item.tasteScore !== undefined && item.tasteScore !== null && item.tasteScore !== '') tasteParts.push('食味' + item.tasteScore + '点');
+  if (item.protein !== undefined && item.protein !== null && item.protein !== '') tasteParts.push('タンパク' + item.protein + '%');
+  if (item.wholeGrainRate !== undefined && item.wholeGrainRate !== null && item.wholeGrainRate !== '') tasteParts.push('整粒' + item.wholeGrainRate + '%');
+  if (item.amylose !== undefined && item.amylose !== null && item.amylose !== '') tasteParts.push('アミロース' + item.amylose + '%');
+  if (item.fattyAcid !== undefined && item.fattyAcid !== null && item.fattyAcid !== '') tasteParts.push('脂肪酸度' + item.fattyAcid);
+  if (item.tasteLotNo) tasteParts.push('伝票:' + item.tasteLotNo);
+  const baseSummary = String(item.materialSummary || '');
+  const tasteSuffix = (tasteParts.length > 0 && baseSummary.indexOf('食味') === -1) ? (' [' + tasteParts.join(' / ') + ']') : '';
+  return `${weatherPrefix}${baseSummary}${tasteSuffix}${memoSuffix}`;
+}
+
+function appendLogsFromPayload_(ss, logs) {
+  const insertedIds = [];
+  const skippedIds = [];
+  const logSheet = ss.getSheetByName(SHEET_NAMES.WORK_LOGS);
+  if (!logs || !Array.isArray(logs) || logs.length === 0 || !logSheet) {
+    return { insertedIds, skippedIds };
+  }
+  const existingLogIdSet = {};
+  logSheet.getDataRange().getValues().slice(1).forEach(r => { existingLogIdSet[String(r[0]).trim()] = true; });
+  const newLogRows = [];
+  logs.forEach(item => {
+    if (!item) return;
+    const logId = String(item.id || '').trim();
+    if (!logId) return;
+    if (existingLogIdSet[logId]) {
+      skippedIds.push(logId);
+      return;
+    }
+    existingLogIdSet[logId] = true;
+    insertedIds.push(logId);
+    newLogRows.push([
+      logId, item.date, item.cat, item.worker || '佐藤 健一', (item.fieldIds || []).join(','),
+      item.totalArea || 0, item.duration || 0, item.machineId || '', item.materialId || '',
+      item.inputQty || 0, item.totalKg || 0, item.dilutionRate || 0, item.waterL || 0,
+      item.n10a || 0, item.p10a || 0, item.k10a || 0, buildCombinedLogNotes_(item), ''
+    ]);
+  });
+  if (newLogRows.length > 0) {
+    logSheet.getRange(logSheet.getLastRow() + 1, 1, newLogRows.length, newLogRows[0].length).setValues(newLogRows);
+    processPendingLogs_();
+  }
+  return { insertedIds, skippedIds };
+}
+
+function upsertWorkOrdersFromPayload_(ss, workOrders) {
+  if (!workOrders || !Array.isArray(workOrders) || workOrders.length === 0) return 0;
+  const orderSheet = getOrCreateSheet_(ss, SHEET_NAMES.WORK_ORDERS);
+  if (orderSheet.getLastRow() === 0) {
+    const orderHeader = ['order_id', 'target_date', 'work_category', 'assignee', 'field_ids', 'note', 'status', 'created_by', 'created_at', 'completed_by', 'completed_at'];
+    orderSheet.getRange(1, 1, 1, orderHeader.length).setValues([orderHeader]);
+    styleHeaderRow_(orderSheet, orderHeader.length, '#0369a1');
+  }
+  const existingOrderRows = orderSheet.getDataRange().getValues();
+  const rowIdxById = {};
+  for (let i = 1; i < existingOrderRows.length; i++) {
+    const oid = String(existingOrderRows[i][0] || '').trim();
+    if (oid) rowIdxById[oid] = i;
+  }
+  const appendOrderRows = [];
+  let updatedExisting = false;
+  let syncedOrdersCount = 0;
+  workOrders.forEach(o => {
+    if (!o || !o.id) return;
+    const oid = String(o.id).trim();
+    const rowArr = [
+      oid, o.targetDate || '', o.cat || '', o.assignee || '全員',
+      Array.isArray(o.fieldIds) ? o.fieldIds.join(',') : String(o.fieldIds || ''),
+      o.note || '', o.status || 'PENDING', o.createdBy || '', o.createdAt || '', o.completedBy || '', o.completedAt || ''
+    ];
+    if (rowIdxById[oid] !== undefined) {
+      existingOrderRows[rowIdxById[oid]] = rowArr;
+      updatedExisting = true;
+    } else {
+      rowIdxById[oid] = existingOrderRows.length + appendOrderRows.length;
+      appendOrderRows.push(rowArr);
+    }
+    syncedOrdersCount++;
+  });
+  if (updatedExisting && existingOrderRows.length > 1) {
+    orderSheet.getRange(2, 1, existingOrderRows.length - 1, existingOrderRows[0].length).setValues(existingOrderRows.slice(1));
+  }
+  if (appendOrderRows.length > 0) {
+    orderSheet.getRange(orderSheet.getLastRow() + 1, 1, appendOrderRows.length, appendOrderRows[0].length).setValues(appendOrderRows);
+  }
+  return syncedOrdersCount;
 }
 
 /**

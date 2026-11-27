@@ -492,6 +492,30 @@
         assertEqual(wo1.status, 'DONE', 'DONE status propagated from remote');
       });
 
+      test('RF-18/19/20: UiState centralized, registerActionHandlers & chartHelpers work', () => {
+        const ui = w.eval('UiState');
+        assert('weatherDataState' in ui, 'weatherDataState in UiState');
+        assert('paretoReductionPct' in ui, 'paretoReductionPct in UiState');
+        assert('uploadedGeoPhotos' in ui, 'uploadedGeoPhotos in UiState');
+
+        assertEqual(typeof w.registerActionHandlers, 'function', 'registerActionHandlers exists');
+        const regCount = Object.keys(w.eval('ACTION_HANDLERS')).length;
+        assert(regCount >= 120, 'all modular handlers registered: ' + regCount);
+
+        const scale = w.createLinearScale_(0, 10, 100, 200);
+        assertApprox(scale(5), 150, 0.01, 'linear scale midpoint');
+        const axisRes = w.renderSvgAxesAndGrid_({ W: 400, H: 200, padL: 40, padR: 20, padT: 20, padB: 30, minX: 0, maxX: 10, minY: 0, maxY: 100 });
+        assert(axisRes.svg.includes('<line'), 'SVG axes generated');
+
+        // RF-23: 全モーダルに role="dialog" と aria-modal="true" があること
+        ['tasteOcrModal', 'photoGpsModal', 'voiceInputModal', 'barcodeScanModal', 'userManualModal'].forEach(mid => {
+          const m = doc.getElementById(mid);
+          assert(m, 'modal exists: ' + mid);
+          assertEqual(m.getAttribute('role'), 'dialog', mid + ' has role=dialog');
+          assertEqual(m.getAttribute('aria-modal'), 'true', mid + ' has aria-modal=true');
+        });
+      });
+
       document.getElementById('summary').textContent = `TOTAL: ${passed + failed} | PASS: ${passed} | FAIL: ${failed}`;
       document.getElementById('summary').className = failed === 0 ? 'pass' : 'fail';
       document.getElementById('results').textContent = results.join('\n');

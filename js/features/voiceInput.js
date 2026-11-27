@@ -536,3 +536,13 @@ function renderVoiceParseResult_(result) {
   `;
   if (submitBtn) submitBtn.disabled = result.labels.length === 0;
 }
+
+registerActionHandlers({
+  openVoiceInputModal: () => openVoiceInputModal(),
+  closeVoiceInputModal: () => closeVoiceInputModal(),
+  toggleVoiceCommandListening: () => toggleVoiceCommandListening(),
+  toggleMemoDictation: () => toggleMemoDictation(),
+  parseVoiceTextFromInput: () => parseVoiceTextFromInput(),
+  useVoiceExample: (el) => useVoiceExample(el.dataset.arg),
+  applyVoiceResultAndSubmit: () => applyVoiceResultAndSubmit()
+});

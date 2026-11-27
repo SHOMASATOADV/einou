@@ -4,9 +4,6 @@
 //   - 作業者が「✅ 完了タップ」で即時共有（GAS doPost/doGet 連動）
 // =========================================================================
 
-window._teamDispatchOpen = true;
-window._teamDispatchFilter = 'ALL'; // 'ALL' | 'PENDING' | 'DONE'
-
 /**
  * ローカルとクラウド(GAS)の作業指示配列を orderId で安全マージ（純関数・単体テスト対象）
  */
@@ -137,12 +134,12 @@ function deleteTeamWorkOrder(orderId) {
 }
 
 function setTeamDispatchFilter(filterVal) {
-  window._teamDispatchFilter = filterVal || 'ALL';
+  UiState.teamDispatchFilter = filterVal || 'ALL';
   renderTeamDispatchPanel();
 }
 
 function toggleTeamDispatchPanel() {
-  window._teamDispatchOpen = !window._teamDispatchOpen;
+  UiState.teamDispatchOpen = !UiState.teamDispatchOpen;
   renderTeamDispatchPanel();
 }
 
@@ -199,8 +196,8 @@ function renderTeamDispatchPanel() {
   const pendingCnt = orders.filter(o => o.status !== 'DONE').length;
   const doneCnt = orders.filter(o => o.status === 'DONE').length;
   const filtered = orders.filter(o => {
-    if (window._teamDispatchFilter === 'PENDING') return o.status !== 'DONE';
-    if (window._teamDispatchFilter === 'DONE') return o.status === 'DONE';
+    if (UiState.teamDispatchFilter === 'PENDING') return o.status !== 'DONE';
+    if (UiState.teamDispatchFilter === 'DONE') return o.status === 'DONE';
     return true;
   });
 
@@ -251,11 +248,11 @@ function renderTeamDispatchPanel() {
       <div class="flex items-center gap-1.5">
         <button type="button" data-action="syncTeamOrdersWithGas" data-arg="pull" class="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-bold">🔄 最新指示を受信</button>
         <button type="button" data-action="toggleTeamDispatchPanel" class="px-2.5 py-1 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[11px] font-bold">
-          ${window._teamDispatchOpen ? '▲ 折りたたむ' : '▼ 開く'}
+          ${UiState.teamDispatchOpen ? '▲ 折りたたむ' : '▼ 開く'}
         </button>
       </div>
     </div>
-    ${rawHtml(window._teamDispatchOpen ? safeHtml`
+    ${rawHtml(UiState.teamDispatchOpen ? safeHtml`
       <div class="p-4 space-y-3">
         <div class="p-3 rounded-2xl bg-[var(--background)] border border-[var(--border)] space-y-2 text-xs">
           <div class="flex items-center justify-between flex-wrap gap-1">
@@ -279,9 +276,9 @@ function renderTeamDispatchPanel() {
         </div>
 
         <div class="flex items-center gap-1.5 text-xs">
-          <button type="button" data-action="setTeamDispatchFilter" data-arg="ALL" class="px-2.5 py-1 rounded-lg font-bold ${window._teamDispatchFilter === 'ALL' ? 'bg-sky-600 text-white' : 'bg-[var(--secondary)] text-[var(--secondary-foreground)]'}">すべて (${orders.length})</button>
-          <button type="button" data-action="setTeamDispatchFilter" data-arg="PENDING" class="px-2.5 py-1 rounded-lg font-bold ${window._teamDispatchFilter === 'PENDING' ? 'bg-amber-600 text-white' : 'bg-[var(--secondary)] text-[var(--secondary-foreground)]'}">🕒 未完了 (${pendingCnt})</button>
-          <button type="button" data-action="setTeamDispatchFilter" data-arg="DONE" class="px-2.5 py-1 rounded-lg font-bold ${window._teamDispatchFilter === 'DONE' ? 'bg-emerald-600 text-white' : 'bg-[var(--secondary)] text-[var(--secondary-foreground)]'}">✅ 完了 (${doneCnt})</button>
+          <button type="button" data-action="setTeamDispatchFilter" data-arg="ALL" class="px-2.5 py-1 rounded-lg font-bold ${UiState.teamDispatchFilter === 'ALL' ? 'bg-sky-600 text-white' : 'bg-[var(--secondary)] text-[var(--secondary-foreground)]'}">すべて (${orders.length})</button>
+          <button type="button" data-action="setTeamDispatchFilter" data-arg="PENDING" class="px-2.5 py-1 rounded-lg font-bold ${UiState.teamDispatchFilter === 'PENDING' ? 'bg-amber-600 text-white' : 'bg-[var(--secondary)] text-[var(--secondary-foreground)]'}">🕒 未完了 (${pendingCnt})</button>
+          <button type="button" data-action="setTeamDispatchFilter" data-arg="DONE" class="px-2.5 py-1 rounded-lg font-bold ${UiState.teamDispatchFilter === 'DONE' ? 'bg-emerald-600 text-white' : 'bg-[var(--secondary)] text-[var(--secondary-foreground)]'}">✅ 完了 (${doneCnt})</button>
         </div>
 
         <div class="space-y-2 max-h-64 overflow-y-auto pr-1">
@@ -291,3 +288,13 @@ function renderTeamDispatchPanel() {
     ` : '')}
   `;
 }
+
+registerActionHandlers({
+  createTeamWorkOrder: () => createTeamWorkOrder(),
+  toggleTeamWorkOrderDone: (el) => toggleTeamWorkOrderDone(el.dataset.arg),
+  jumpToInputFromWorkOrder: (el) => jumpToInputFromWorkOrder(el.dataset.arg),
+  deleteTeamWorkOrder: (el) => deleteTeamWorkOrder(el.dataset.arg),
+  setTeamDispatchFilter: (el) => setTeamDispatchFilter(el.dataset.arg),
+  toggleTeamDispatchPanel: () => toggleTeamDispatchPanel(),
+  syncTeamOrdersWithGas: (el) => syncTeamOrdersWithGas(el.dataset.arg || 'pull', false)
+});

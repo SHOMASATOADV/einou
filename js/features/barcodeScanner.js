@@ -367,3 +367,14 @@ function renderBarcodeScanResult_(res) {
     </div>
   `;
 }
+
+registerActionHandlers({
+  openBarcodeScanModal: () => openBarcodeScanModal(),
+  closeBarcodeScanModal: () => closeBarcodeScanModal(),
+  toggleBarcodeCamera: () => toggleBarcodeCamera(),
+  handleBarcodeImageSelect: (el, ev) => handleBarcodeImageSelect(ev),
+  lookupBarcodeManualInput: () => lookupBarcodeManualInput(),
+  testBarcodeSample: (el) => testBarcodeSample(el.dataset.arg),
+  applyScannedMaterialToForm: (el) => applyScannedMaterialToForm(el.dataset.arg),
+  bindScannedBarcodeToExistingMaterial: () => bindScannedBarcodeToExistingMaterial()
+});

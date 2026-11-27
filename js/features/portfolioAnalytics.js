@@ -6,9 +6,6 @@
 //   - TSK-037-4: 4グループ診断＆経営改善アクション提示
 // =========================================================================
 
-window._portfolioUseDemoData = false;
-window._portfolioAxisMode = 'median'; // 'median' | 'mean'
-
 const PORTFOLIO_DEMO_ITEMS = [
   { id: 'DEMO-P1', name: '① 本場1号(参考)', crop: 'コシヒカリ (BL)', area: 30, hoursPer10a: 4.2, profitPer10aYen: 138000 },
   { id: 'DEMO-P2', name: '② 本場2号(参考)', crop: 'コシヒカリ (BL)', area: 20, hoursPer10a: 4.8, profitPer10aYen: 126000 },
@@ -134,12 +131,12 @@ function classifyPortfolioQuadrants(items, axisMode = 'median') {
 }
 
 function togglePortfolioDemoMode() {
-  window._portfolioUseDemoData = !window._portfolioUseDemoData;
+  UiState.portfolioUseDemoData = !UiState.portfolioUseDemoData;
   renderPortfolioDashboard();
 }
 
 function changePortfolioAxisMode(mode) {
-  window._portfolioAxisMode = mode === 'mean' ? 'mean' : 'median';
+  UiState.portfolioAxisMode = mode === 'mean' ? 'mean' : 'median';
   renderPortfolioDashboard();
 }
 
@@ -150,33 +147,17 @@ function renderPortfolioDashboard() {
   const container = document.getElementById('portfolioDashboardBody');
   if (!container) return;
 
-  const cropSel = document.getElementById('portfolioCropFilter');
-  if (cropSel) {
-    const curVal = cropSel.value || 'ALL';
-    const crops = [...new Set([
-      ...(fieldsData || []).map(f => f.crop).filter(Boolean),
-      ...(window._portfolioUseDemoData ? PORTFOLIO_DEMO_ITEMS.map(p => p.crop) : [])
-    ])];
-    cropSel.innerHTML = [
-      '<option value="ALL">すべての品種（全圃場）</option>',
-      ...crops.map(c => safeHtml`<option value="${c}">🌾 ${c}</option>`)
-    ].join('');
-    cropSel.value = [...cropSel.options].some(o => o.value === curVal) ? curVal : 'ALL';
-  }
-  const cropFilter = cropSel ? cropSel.value : 'ALL';
+  const isDemo = Boolean(UiState.portfolioUseDemoData);
+  const cropFilter = syncCropFilterSelect_('portfolioCropFilter', isDemo ? PORTFOLIO_DEMO_ITEMS : []);
+  updateDemoToggleButton_(
+    'portfolioDemoToggleBtn',
+    isDemo,
+    '✅ デモ試算モード中（実データへ戻す）',
+    '📊 サンプル7筆で4象限を試算'
+  );
 
-  const demoBtn = document.getElementById('portfolioDemoToggleBtn');
-  if (demoBtn) {
-    demoBtn.textContent = window._portfolioUseDemoData
-      ? '✅ デモ試算モード中（実データへ戻す）'
-      : '📊 サンプル7筆で4象限を試算';
-    demoBtn.className = window._portfolioUseDemoData
-      ? 'px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 transition'
-      : 'px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-800 border border-slate-300 hover:opacity-80 transition';
-  }
-
-  const rawItems = collectFieldPortfolioMetrics(cropFilter, window._portfolioUseDemoData);
-  const res = classifyPortfolioQuadrants(rawItems, window._portfolioAxisMode);
+  const rawItems = collectFieldPortfolioMetrics(cropFilter, isDemo);
+  const res = classifyPortfolioQuadrants(rawItems, UiState.portfolioAxisMode);
 
   if (!res.valid || res.items.length < 2) {
     container.innerHTML = safeHtml`
@@ -202,8 +183,14 @@ function renderPortfolioDashboard() {
   const maxP = Math.max(minP + 40000, Math.ceil((Math.max(...pVals) + 20000) / 10000) * 10000);
   const maxArea = Math.max(10, ...res.items.map(i => i.area));
 
-  const mapX = (h) => padL + ((h - minH) / Math.max(0.1, maxH - minH)) * plotW;
-  const mapY = (p) => padT + plotH - ((p - minP) / Math.max(1, maxP - minP)) * plotH;
+  const { svg: axesGridSvg, mapX, mapY } = renderSvgAxesAndGrid_({
+    W, H, padL, padR, padT, padB,
+    minX: minH, maxX: maxH, minY: minP, maxY: maxP,
+    xSteps: 5, ySteps: 4,
+    xFormatter: (hv) => `${hv.toFixed(1)}h`,
+    yFormatter: (pv) => `${(pv / 10000).toFixed(1)}万`,
+    dashArray: '2,3'
+  });
   const mapR = (area) => 9 + Math.sqrt(area / maxArea) * 18;
 
   const axX = mapX(res.axisHours);
@@ -221,21 +208,6 @@ function renderPortfolioDashboard() {
     <text x="${W - padR - 8}" y="${H - padB - 8}" text-anchor="end" font-size="11" font-weight="bold" fill="#b91c1c">⚠️ 要見直し田（低粗利・多労力）</text>
   `;
 
-  // 目盛り線
-  let ticksSvg = '';
-  for (let i = 0; i <= 4; i++) {
-    const pv = minP + ((maxP - minP) * i) / 4;
-    const yp = mapY(pv);
-    ticksSvg += `<line x1="${padL}" y1="${yp}" x2="${W - padR}" y2="${yp}" stroke="#e2e8f0" stroke-dasharray="2,3" />`;
-    ticksSvg += `<text x="${padL - 8}" y="${yp + 4}" text-anchor="end" font-size="10" fill="#475569">${(pv / 10000).toFixed(1)}万</text>`;
-  }
-  for (let i = 0; i <= 5; i++) {
-    const hv = minH + ((maxH - minH) * i) / 5;
-    const xp = mapX(hv);
-    ticksSvg += `<line x1="${xp}" y1="${padT}" x2="${xp}" y2="${H - padB}" stroke="#e2e8f0" stroke-dasharray="2,3" />`;
-    ticksSvg += `<text x="${xp}" y="${H - padB + 16}" text-anchor="middle" font-size="10" fill="#475569">${hv.toFixed(1)}h</text>`;
-  }
-
   // 基準軸ライン
   const axisLabel = res.axisMode === 'mean' ? '平均' : '中央値';
   const crossHair = `
@@ -250,7 +222,7 @@ function renderPortfolioDashboard() {
     const cx = mapX(item.hoursPer10a);
     const cy = mapY(item.profitPer10aYen);
     const r = mapR(item.area);
-    const clickAttr = !window._portfolioUseDemoData
+    const clickAttr = !isDemo
       ? `data-action="inspectFieldFromPortfolio" data-arg="${escapeHtml(item.id)}" style="cursor:pointer"`
       : '';
     return `
@@ -266,9 +238,7 @@ function renderPortfolioDashboard() {
   const svgHtml = `
     <svg viewBox="0 0 ${W} ${H}" class="w-full h-auto bg-white rounded-xl border border-slate-300">
       ${bgZones}
-      ${ticksSvg}
-      <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H - padB}" stroke="#64748b" stroke-width="1.5" />
-      <line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#64748b" stroke-width="1.5" />
+      ${axesGridSvg}
       ${crossHair}
       ${bubblesSvg}
       <text x="${padL + plotW / 2}" y="${H - 10}" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#334155">10aあたり作業・機械時間 (h/10a) ← 左ほど省力</text>
@@ -343,3 +313,10 @@ function inspectFieldFromPortfolio(fieldId) {
   switchMainTab('gis');
   inspectField(fieldId);
 }
+
+registerActionHandlers({
+  togglePortfolioDemoMode: () => togglePortfolioDemoMode(),
+  renderPortfolioDashboard: () => renderPortfolioDashboard(),
+  changePortfolioAxisMode: (el) => changePortfolioAxisMode(el.value),
+  inspectFieldFromPortfolio: (el) => inspectFieldFromPortfolio(el.dataset.arg)
+});

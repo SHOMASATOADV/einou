@@ -1668,7 +1668,7 @@
   <!-- ========================================================================= -->
   <!-- 📸 食味計画面・検査伝票 写真撮影＆OCR読み取りモーダル                        -->
   <!-- ========================================================================= -->
-  <div id="tasteOcrModal" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" data-action="closeModalOnBackdrop">
+  <div id="tasteOcrModal" role="dialog" aria-modal="true" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" data-action="closeModalOnBackdrop">
     <div class="bg-[var(--card)] border-2 border-[var(--border)] rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
       <div class="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] bg-sky-600 text-white shrink-0">
         <div>
@@ -1784,7 +1784,7 @@
   <!-- ========================================================================= -->
   <!-- 📷 ドローン・スマホ写真 EXIF GPS位置情報読み取り＆圃場自動判別モーダル         -->
   <!-- ========================================================================= -->
-  <div id="photoGpsModal" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" data-action="closeModalOnBackdrop">
+  <div id="photoGpsModal" role="dialog" aria-modal="true" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" data-action="closeModalOnBackdrop">
     <div class="bg-[var(--card)] border-2 border-[var(--border)] rounded-3xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
       <div class="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] bg-indigo-600 text-white shrink-0">
         <div>
@@ -1826,7 +1826,7 @@
   <!-- ========================================================================= -->
   <!-- 📖 アプリ内 取扱説明書・使い方ガイドモーダル                               -->
   <!-- ========================================================================= -->
-  <div id="userManualModal" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" data-action="closeModalOnBackdrop">
+  <div id="userManualModal" role="dialog" aria-modal="true" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" data-action="closeModalOnBackdrop">
     <div class="bg-[var(--card)] border-2 border-[var(--border)] rounded-3xl max-w-4xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
       <!-- モーダルヘッダー -->
       <div class="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] bg-emerald-600 text-white shrink-0">
@@ -1989,7 +1989,7 @@
   <!-- ========================================================================= -->
   <!-- 🎤 音声コマンド一括入力モーダル（TSK-029 / Web Speech API）                  -->
   <!-- ========================================================================= -->
-  <div id="voiceInputModal" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" data-action="closeModalOnBackdrop">
+  <div id="voiceInputModal" role="dialog" aria-modal="true" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" data-action="closeModalOnBackdrop">
     <div class="bg-[var(--card)] border-2 border-[var(--border)] rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
       <div class="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] bg-rose-600 text-white shrink-0">
         <div>
@@ -2059,7 +2059,7 @@
   <!-- ========================================================================= -->
   <!-- 📷 JANバーコード / QRコード読み取り 自動資材選択モーダル（TSK-028）          -->
   <!-- ========================================================================= -->
-  <div id="barcodeScanModal" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" data-action="closeModalOnBackdrop">
+  <div id="barcodeScanModal" role="dialog" aria-modal="true" class="hidden no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 md:p-6" data-action="closeModalOnBackdrop">
     <div class="bg-[var(--card)] border-2 border-[var(--border)] rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
       <div class="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] bg-indigo-600 text-white shrink-0">
         <div>
@@ -2117,11 +2117,14 @@
   <script src="./js/constants.js"></script>
   <script src="./js/utils.js"></script>
   <script src="./js/storage.js"></script>
+  <script src="./js/ui/chartHelpers.js"></script>
   <script src="./js/domain/calculations.js"></script>
   <script src="./js/domain/pesticideSafety.js"></script>
   <script src="./js/tasteOcr.js"></script>
   <script src="./js/features/workInput.js"></script>
+  <script src="./js/features/diaryTimeline.js"></script>
   <script src="./js/features/gisMap.js"></script>
+  <script src="./js/features/gisKarte.js"></script>
   <script src="./js/features/photoGps.js"></script>
   <script src="./js/features/resources.js"></script>
   <script src="./js/features/reports.js"></script>
@@ -2135,6 +2138,7 @@
   <script src="./js/features/famicSync.js"></script>
   <script src="./js/features/teamDispatch.js"></script>
   <script src="./js/features/syncAndMigration.js"></script>
+  <script src="./js/features/externalMigration.js"></script>
   <script src="./js/app.js"></script>
 </body>
 </html>

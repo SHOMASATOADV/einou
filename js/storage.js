@@ -22,7 +22,24 @@ const UiState = {
   currentInspectedFieldId: '',
   editingLogId: null,
   pendingMigrationItems: [],
-  pendingMigrationMode: 'fields'
+  pendingMigrationMode: 'fields',
+  // RF-18: 分散していた window._* 状態を UiState へ一元管理
+  aiAdvisorOpen: true,
+  aiGeneratedTasks: [],
+  lastSyncedFieldSig: null,
+  paretoMetricMode: 'hours',
+  paretoPeriodMode: 'month',
+  paretoReductionPct: 20,
+  paretoUseDemoData: false,
+  portfolioAxisMode: 'median',
+  portfolioUseDemoData: false,
+  regressionUseDemoData: false,
+  teamDispatchFilter: 'ALL',
+  teamDispatchOpen: true,
+  toastTimer: null,
+  uploadedGeoPhotos: [],
+  weatherDataState: null,
+  weatherDrawerOpen: false
 };
 
 Object.keys(AppState).forEach((k) => {

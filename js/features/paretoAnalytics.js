@@ -6,11 +6,6 @@
 //   - TSK-040-4: ボトルネック改善インパクト試算シミュレータ（10〜30%削減試算）
 // =========================================================================
 
-window._paretoUseDemoData = false;
-window._paretoMetricMode = 'hours';  // 'hours' | 'cost'
-window._paretoPeriodMode = 'month';  // 'month' | 'jun'
-window._paretoReductionPct = 20;     // 10〜30%
-
 const PARETO_DEMO_LOGS = [
   { date: '2026/04/12', cat: '耕起', duration: 14.0, machineId: 'M01' },
   { date: '2026/04/24', cat: '代かき', duration: 16.0, machineId: 'M01' },
@@ -162,22 +157,22 @@ function simulateBottleneckSavings(paretoResult, reductionPct = 20) {
 }
 
 function toggleParetoDemoMode() {
-  window._paretoUseDemoData = !window._paretoUseDemoData;
+  UiState.paretoUseDemoData = !UiState.paretoUseDemoData;
   renderParetoDashboard();
 }
 
 function changeParetoMetricMode(mode) {
-  window._paretoMetricMode = mode === 'cost' ? 'cost' : 'hours';
+  UiState.paretoMetricMode = mode === 'cost' ? 'cost' : 'hours';
   renderParetoDashboard();
 }
 
 function changeParetoPeriodMode(mode) {
-  window._paretoPeriodMode = mode === 'jun' ? 'jun' : 'month';
+  UiState.paretoPeriodMode = mode === 'jun' ? 'jun' : 'month';
   renderParetoDashboard();
 }
 
 function changeParetoReductionPct(val) {
-  window._paretoReductionPct = Math.max(5, Math.min(50, Number(val) || 20));
+  UiState.paretoReductionPct = Math.max(5, Math.min(50, Number(val) || 20));
   renderParetoDashboard();
 }
 
@@ -188,19 +183,17 @@ function renderParetoDashboard() {
   const container = document.getElementById('paretoDashboardBody');
   if (!container) return;
 
-  const demoBtn = document.getElementById('paretoDemoToggleBtn');
-  if (demoBtn) {
-    demoBtn.textContent = window._paretoUseDemoData
-      ? '✅ デモ試算モード中（実データへ戻す）'
-      : '📊 年間サンプルデータで試算';
-    demoBtn.className = window._paretoUseDemoData
-      ? 'px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 transition'
-      : 'px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-800 border border-slate-300 hover:opacity-80 transition';
-  }
+  const isDemo = Boolean(UiState.paretoUseDemoData);
+  updateDemoToggleButton_(
+    'paretoDemoToggleBtn',
+    isDemo,
+    '✅ デモ試算モード中（実データへ戻す）',
+    '📊 年間サンプルデータで試算'
+  );
 
-  const srcLogs = window._paretoUseDemoData ? PARETO_DEMO_LOGS : (workLogs || []);
+  const srcLogs = isDemo ? PARETO_DEMO_LOGS : (workLogs || []);
   const stats = aggregateMonthlyJunWorkStats(srcLogs, machines, costSettings);
-  const pareto = computeParetoAbcAnalysis(stats.categories, window._paretoMetricMode);
+  const pareto = computeParetoAbcAnalysis(stats.categories, UiState.paretoMetricMode);
 
   if (!pareto.valid) {
     container.innerHTML = safeHtml`
@@ -212,8 +205,8 @@ function renderParetoDashboard() {
     return;
   }
 
-  const sim = simulateBottleneckSavings(pareto, window._paretoReductionPct);
-  const isCost = window._paretoMetricMode === 'cost';
+  const sim = simulateBottleneckSavings(pareto, UiState.paretoReductionPct);
+  const isCost = UiState.paretoMetricMode === 'cost';
   const unitStr = isCost ? '円' : 'h';
   const fmtVal = (v) => (isCost ? `¥${Math.round(v).toLocaleString()}` : `${Number(v).toFixed(1)}h`);
 
@@ -268,7 +261,7 @@ function renderParetoDashboard() {
   `;
 
   // --- SVG 2: 月別・旬別 時系列推移グラフ ---
-  const series = window._paretoPeriodMode === 'jun' ? stats.junSeries : stats.monthly;
+  const series = UiState.paretoPeriodMode === 'jun' ? stats.junSeries : stats.monthly;
   const maxSer = Math.max(1, ...series.map(s => (isCost ? s.costYen : s.hours))) * 1.15;
   const tsH = 210, tsPadL = 56, tsPadR = 20, tsPadT = 22, tsPadB = 38;
   const tsW = W - tsPadL - tsPadR;
@@ -330,7 +323,7 @@ function renderParetoDashboard() {
         <div class="text-[11px] text-emerald-700/80">創出可能時間：+${sim.savedHours} 時間（約 ${(sim.savedHours / 8).toFixed(1)} 人日）</div>
       </div>
       <div class="p-3.5 rounded-xl bg-sky-50 border border-sky-200">
-        <div class="text-[11px] font-bold text-sky-700">📅 最大繁忙ピーク（${window._paretoPeriodMode === 'jun' ? '旬別' : '月別'}）</div>
+        <div class="text-[11px] font-bold text-sky-700">📅 最大繁忙ピーク（${UiState.paretoPeriodMode === 'jun' ? '旬別' : '月別'}）</div>
         <div class="text-xl font-extrabold text-sky-900 mt-0.5">${peakItem.label}</div>
         <div class="text-[11px] text-sky-700/80">ピーク負荷：${fmtVal(isCost ? peakItem.costYen : peakItem.hours)}</div>
       </div>
@@ -350,7 +343,7 @@ function renderParetoDashboard() {
     </div>
 
     <div class="mb-4">
-      <div class="text-xs font-bold text-slate-700 mb-1.5">📅 ${window._paretoPeriodMode === 'jun' ? '旬別（上旬/中旬/下旬）' : '月別'} 労務・稼働負荷推移（緑＝最大繁忙ピーク）</div>
+      <div class="text-xs font-bold text-slate-700 mb-1.5">📅 ${UiState.paretoPeriodMode === 'jun' ? '旬別（上旬/中旬/下旬）' : '月別'} 労務・稼働負荷推移（緑＝最大繁忙ピーク）</div>
       ${rawHtml(timeSeriesSvg)}
     </div>
 
@@ -374,3 +367,11 @@ function renderParetoDashboard() {
     </div>
   `;
 }
+
+registerActionHandlers({
+  toggleParetoDemoMode: () => toggleParetoDemoMode(),
+  changeParetoMetricMode: (el) => changeParetoMetricMode(el.value),
+  changeParetoPeriodMode: (el) => changeParetoPeriodMode(el.value),
+  changeParetoReductionPct: (el) => changeParetoReductionPct(el.value),
+  renderParetoDashboard: () => renderParetoDashboard()
+});

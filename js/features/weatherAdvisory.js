@@ -9,9 +9,6 @@
 const WEATHER_CACHE_KEY = 'rakuraku_einou_weather_cache_v1';
 const WEATHER_CACHE_TTL_MS = 60 * 60 * 1000; // 60分キャッシュ
 
-window._weatherDataState = null;
-window._weatherDrawerOpen = false;
-
 function mapWmoWeatherCode_(code) {
   const c = Number(code);
   if (c === 0) return { icon: '☀️', label: '快晴' };
@@ -112,14 +109,14 @@ async function fetchOpenMeteoWeather(forceRefresh = false) {
   if (!forceRefresh && cached && cached.fetchedAt) {
     const ageMs = Date.now() - new Date(cached.fetchedAt).getTime();
     if (ageMs >= 0 && ageMs < WEATHER_CACHE_TTL_MS) {
-      window._weatherDataState = cached;
+      UiState.weatherDataState = cached;
       return cached;
     }
   }
 
   if (typeof isOfflineMode !== 'undefined' && isOfflineMode) {
     const fallback = cached || buildOfflineFallbackWeather_(coord);
-    window._weatherDataState = fallback;
+    UiState.weatherDataState = fallback;
     return fallback;
   }
 
@@ -142,11 +139,11 @@ async function fetchOpenMeteoWeather(forceRefresh = false) {
       daily: json.daily
     };
     saveWeatherCache_(normalized);
-    window._weatherDataState = normalized;
+    UiState.weatherDataState = normalized;
     return normalized;
   } catch (err) {
     const fallback = cached || buildOfflineFallbackWeather_(coord);
-    window._weatherDataState = fallback;
+    UiState.weatherDataState = fallback;
     return fallback;
   }
 }
@@ -287,7 +284,7 @@ function evaluatePestAndDroneRisk(weatherData) {
 }
 
 function toggleWeatherDetailDrawer() {
-  window._weatherDrawerOpen = !window._weatherDrawerOpen;
+  UiState.weatherDrawerOpen = !UiState.weatherDrawerOpen;
   renderWeatherHeaderWidget();
 }
 
@@ -301,7 +298,7 @@ async function refreshWeatherAdvisory(forceRefresh = true) {
     renderAiAdvisorPanel();
   }
   if (forceRefresh && typeof showToast === 'function') {
-    const src = window._weatherDataState?.source === 'open-meteo' ? 'Open-Meteo 最新気象データ' : 'キャッシュ/オフライン推定データ';
+    const src = UiState.weatherDataState?.source === 'open-meteo' ? 'Open-Meteo 最新気象データ' : 'キャッシュ/オフライン推定データ';
     showToast('🌦️ 気象・AI予察データを更新しました', `${src}に基づき高温登熟・病害虫・ドローン防除可否を再判定しました。`);
   }
 }
@@ -312,7 +309,7 @@ async function refreshWeatherAdvisory(forceRefresh = true) {
 function renderWeatherHeaderWidget() {
   const host = document.getElementById('weatherHeaderWidget');
   if (!host) return;
-  const data = window._weatherDataState;
+  const data = UiState.weatherDataState;
   if (!data) {
     host.innerHTML = `<div class="text-xs text-[var(--muted-foreground)] px-3 py-2">🌦️ 気象データ取得中...</div>`;
     return;
@@ -372,11 +369,11 @@ function renderWeatherHeaderWidget() {
           🔄 更新
         </button>
         <button type="button" data-action="toggleWeatherDetailDrawer" class="px-2.5 py-1 rounded-lg bg-sky-600 text-white text-[11px] font-bold hover:bg-sky-700 transition">
-          ${window._weatherDrawerOpen ? '▲ 週間予報・AI予察を閉じる' : '▼ 7日間予報・AI予察を見る'}
+          ${UiState.weatherDrawerOpen ? '▲ 週間予報・AI予察を閉じる' : '▼ 7日間予報・AI予察を見る'}
         </button>
       </div>
     </div>
-    ${rawHtml(window._weatherDrawerOpen ? safeHtml`
+    ${rawHtml(UiState.weatherDrawerOpen ? safeHtml`
       <div class="border-t border-[var(--border)] px-4 py-3 space-y-3 bg-[var(--secondary)]/40">
         <div class="flex items-center justify-between text-[11px] text-[var(--muted-foreground)]">
           <span>📍 対象エリア: ${data.coord?.label || '登録圃場'} (${data.coord?.lat}, ${data.coord?.lng})</span>
@@ -414,7 +411,7 @@ function renderFieldWeatherCard(fieldId) {
   const el = document.getElementById('gisFieldWeatherCard');
   if (!el) return;
   const f = (fieldsData || []).find(item => item.id === fieldId);
-  const data = window._weatherDataState;
+  const data = UiState.weatherDataState;
   if (!f || !data) {
     el.innerHTML = `<div class="text-xs text-[var(--muted-foreground)]">気象予察データを読み込み中...</div>`;
     return;
@@ -462,3 +459,8 @@ function initWeatherAdvisory() {
     }
   }).catch(() => {});
 }
+
+registerActionHandlers({
+  toggleWeatherDetailDrawer: () => toggleWeatherDetailDrawer(),
+  refreshWeatherAdvisory: () => refreshWeatherAdvisory(true)
+});

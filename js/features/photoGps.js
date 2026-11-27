@@ -1,9 +1,6 @@
 // Feature: ドローン・スマホ撮影写真のEXIF GPS位置情報読み取り ＆ 圃場自動判別 (Pure JS / オフライン対応)
 
 let _photoGpsItems = [];
-if (typeof window !== 'undefined') {
-  window._uploadedGeoPhotos = window._uploadedGeoPhotos || [];
-}
 
 /**
  * DataView から ASCII 文字列を読み取る
@@ -288,9 +285,7 @@ async function handlePhotoGpsFileSelect(event) {
   }
 
   _photoGpsItems = parsedItems;
-  if (typeof window !== 'undefined') {
-    window._uploadedGeoPhotos = parsedItems.filter(it => it.hasGps);
-  }
+  UiState.uploadedGeoPhotos = parsedItems.filter(it => it.hasGps);
   if (event?.target) event.target.value = '';
   renderPhotoGpsResults_();
   if (typeof refreshInteractiveMaps_ === 'function') refreshInteractiveMaps_();
@@ -438,7 +433,7 @@ function createNewFieldFromPhotoCluster(itemIndex) {
     p.confidence = m.confidence;
   });
   if (typeof window !== 'undefined') {
-    window._uploadedGeoPhotos = _photoGpsItems.filter(it => it.hasGps);
+    UiState.uploadedGeoPhotos = _photoGpsItems.filter(it => it.hasGps);
   }
 
   saveStateToStorage();
@@ -449,7 +444,18 @@ function createNewFieldFromPhotoCluster(itemIndex) {
 
 function clearPhotoGpsResults() {
   _photoGpsItems = [];
-  if (typeof window !== 'undefined') window._uploadedGeoPhotos = [];
+  UiState.uploadedGeoPhotos = [];
   renderPhotoGpsResults_();
   if (typeof refreshInteractiveMaps_ === 'function') refreshInteractiveMaps_();
 }
+
+registerActionHandlers({
+  openPhotoGpsModal: () => openPhotoGpsModal(),
+  closePhotoGpsModal: () => closePhotoGpsModal(),
+  handlePhotoGpsFileSelect: (el, ev) => handlePhotoGpsFileSelect(ev),
+  applyPhotoGpsFieldsToInput: () => applyPhotoGpsFieldsToInput(),
+  showPhotoGpsOnGisMap: () => showPhotoGpsOnGisMap(),
+  inspectMatchedFieldFromPhoto: (el) => inspectMatchedFieldFromPhoto(el.dataset.arg),
+  createNewFieldFromPhotoCluster: (el) => createNewFieldFromPhotoCluster(el.dataset.arg),
+  clearPhotoGpsResults: () => clearPhotoGpsResults()
+});

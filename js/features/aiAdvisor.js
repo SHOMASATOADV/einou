@@ -15,9 +15,6 @@ const AI_MEMO_KEYWORDS = [
   { key: 'handover', label: '📌 引き継ぎ事項', cat: '草刈り', weight: 20, re: /(引き継ぎ|引継ぎ|要確認|次回|至急|注意)/ }
 ];
 
-window._aiAdvisorOpen = true;
-window._aiGeneratedTasks = [];
-
 /**
  * TSK-039-1: 日誌メモ・見回りアラートのテキスト解析＆圃場別課題スコア化
  */
@@ -184,7 +181,7 @@ function generateWeeklyAiTasks(fields = [], logs = [], weatherData = null) {
 }
 
 function toggleAiAdvisorPanel() {
-  window._aiAdvisorOpen = !window._aiAdvisorOpen;
+  UiState.aiAdvisorOpen = !UiState.aiAdvisorOpen;
   renderAiAdvisorPanel();
 }
 
@@ -192,7 +189,7 @@ function toggleAiAdvisorPanel() {
  * TSK-039-3: AI提案タスクを1タップで作業入力フォームへ転送
  */
 function applyAiTaskToInput(taskIndex) {
-  const task = (window._aiGeneratedTasks || [])[Number(taskIndex)];
+  const task = (UiState.aiGeneratedTasks || [])[Number(taskIndex)];
   if (!task) return;
 
   if (typeof switchMainTab === 'function') switchMainTab('input');
@@ -226,8 +223,8 @@ function renderAiAdvisorPanel() {
   if (!host) return;
 
   const analysis = analyzeFieldMemosAndAlerts(fieldsData, workLogs);
-  const tasks = generateWeeklyAiTasks(fieldsData, workLogs, window._weatherDataState);
-  window._aiGeneratedTasks = tasks;
+  const tasks = generateWeeklyAiTasks(fieldsData, workLogs, UiState.weatherDataState);
+  UiState.aiGeneratedTasks = tasks;
 
   const flaggedFields = analysis.filter(a => a.score > 0);
   const memoSummaryText = flaggedFields.length > 0
@@ -263,10 +260,10 @@ function renderAiAdvisorPanel() {
         <h3 class="text-xs md:text-sm font-bold text-[var(--foreground)]">🧠 今週の重点ToDoリスト ＆ 日誌メモ自動解析（${tasks.length}件提案）</h3>
       </div>
       <button type="button" data-action="toggleAiAdvisorPanel" class="px-2.5 py-1 rounded-lg bg-[var(--card)] border border-[var(--border)] text-[11px] font-bold text-[var(--foreground)] hover:opacity-80">
-        ${window._aiAdvisorOpen ? '▲ 折りたたむ' : '▼ 提案を見る'}
+        ${UiState.aiAdvisorOpen ? '▲ 折りたたむ' : '▼ 提案を見る'}
       </button>
     </div>
-    ${rawHtml(window._aiAdvisorOpen ? safeHtml`
+    ${rawHtml(UiState.aiAdvisorOpen ? safeHtml`
       <div class="p-4 space-y-2.5">
         <div class="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-500/10 px-3 py-1.5 rounded-xl">
           📝 ${memoSummaryText}
@@ -278,3 +275,8 @@ function renderAiAdvisorPanel() {
     ` : '')}
   `;
 }
+
+registerActionHandlers({
+  toggleAiAdvisorPanel: () => toggleAiAdvisorPanel(),
+  applyAiTaskToInput: (el) => applyAiTaskToInput(el.dataset.arg)
+});

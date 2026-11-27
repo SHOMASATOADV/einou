@@ -108,7 +108,7 @@ function parseOptionalBool_(v) {
   return undefined;
 }
 
-const ACTION_HANDLERS = {
+registerActionHandlers({
   switchMainTab: (el) => switchMainTab(el.dataset.arg),
   switchMainTabAndPanel: (el) => { switchMainTab(el.dataset.arg); toggleQuickAddPanel(el.dataset.arg2, true); },
   toggleUserManualModal: (el) => toggleUserManualModal(parseOptionalBool_(el.dataset.arg)),
@@ -183,60 +183,12 @@ const ACTION_HANDLERS = {
   reparseTasteRawText: () => reparseTasteRawText(),
   applyTasteOcrToHarvestForm: () => applyTasteOcrToHarvestForm(),
   handleTasteImageSelect: (el, ev) => handleTasteImageSelect(ev),
-  openPhotoGpsModal: () => openPhotoGpsModal(),
-  closePhotoGpsModal: () => closePhotoGpsModal(),
-  handlePhotoGpsFileSelect: (el, ev) => handlePhotoGpsFileSelect(ev),
-  applyPhotoGpsFieldsToInput: () => applyPhotoGpsFieldsToInput(),
-  showPhotoGpsOnGisMap: () => showPhotoGpsOnGisMap(),
-  inspectMatchedFieldFromPhoto: (el) => inspectMatchedFieldFromPhoto(el.dataset.arg),
-  createNewFieldFromPhotoCluster: (el) => createNewFieldFromPhotoCluster(el.dataset.arg),
-  clearPhotoGpsResults: () => clearPhotoGpsResults(),
-  toggleRegressionDemoMode: () => toggleRegressionDemoMode(),
-  renderNitrogenRegressionDashboard: () => renderNitrogenRegressionDashboard(),
-  inspectFieldFromRegression: (el) => inspectFieldFromRegression(el.dataset.arg),
-  togglePortfolioDemoMode: () => togglePortfolioDemoMode(),
-  renderPortfolioDashboard: () => renderPortfolioDashboard(),
-  changePortfolioAxisMode: (el) => changePortfolioAxisMode(el.value),
-  inspectFieldFromPortfolio: (el) => inspectFieldFromPortfolio(el.dataset.arg),
-  toggleParetoDemoMode: () => toggleParetoDemoMode(),
-  changeParetoMetricMode: (el) => changeParetoMetricMode(el.value),
-  changeParetoPeriodMode: (el) => changeParetoPeriodMode(el.value),
-  changeParetoReductionPct: (el) => changeParetoReductionPct(el.value),
-  renderParetoDashboard: () => renderParetoDashboard(),
-  toggleAiAdvisorPanel: () => toggleAiAdvisorPanel(),
-  applyAiTaskToInput: (el) => applyAiTaskToInput(el.dataset.arg),
-  toggleWeatherDetailDrawer: () => toggleWeatherDetailDrawer(),
-  refreshWeatherAdvisory: () => refreshWeatherAdvisory(true),
-  openVoiceInputModal: () => openVoiceInputModal(),
-  closeVoiceInputModal: () => closeVoiceInputModal(),
-  toggleVoiceCommandListening: () => toggleVoiceCommandListening(),
-  toggleMemoDictation: () => toggleMemoDictation(),
-  parseVoiceTextFromInput: () => parseVoiceTextFromInput(),
-  useVoiceExample: (el) => useVoiceExample(el.dataset.arg),
-  applyVoiceResultAndSubmit: () => applyVoiceResultAndSubmit(),
   toggleOutdoorMode: () => toggleOutdoorMode(),
   quickSubmitFromBottomBar: () => quickSubmitFromBottomBar(),
-  openBarcodeScanModal: () => openBarcodeScanModal(),
-  closeBarcodeScanModal: () => closeBarcodeScanModal(),
-  toggleBarcodeCamera: () => toggleBarcodeCamera(),
-  handleBarcodeImageSelect: (el, ev) => handleBarcodeImageSelect(ev),
-  lookupBarcodeManualInput: () => lookupBarcodeManualInput(),
-  testBarcodeSample: (el) => testBarcodeSample(el.dataset.arg),
-  applyScannedMaterialToForm: (el) => applyScannedMaterialToForm(el.dataset.arg),
-  bindScannedBarcodeToExistingMaterial: () => bindScannedBarcodeToExistingMaterial(),
-  runFamicBuiltInSync: () => runFamicBuiltInSync(),
-  handleFamicCsvUpload: (el, ev) => handleFamicCsvUpload(ev),
-  createTeamWorkOrder: () => createTeamWorkOrder(),
-  toggleTeamWorkOrderDone: (el) => toggleTeamWorkOrderDone(el.dataset.arg),
-  jumpToInputFromWorkOrder: (el) => jumpToInputFromWorkOrder(el.dataset.arg),
-  deleteTeamWorkOrder: (el) => deleteTeamWorkOrder(el.dataset.arg),
-  setTeamDispatchFilter: (el) => setTeamDispatchFilter(el.dataset.arg),
-  toggleTeamDispatchPanel: () => toggleTeamDispatchPanel(),
-  syncTeamOrdersWithGas: (el) => syncTeamOrdersWithGas(el.dataset.arg || 'pull', false),
   closeModalOnBackdrop: (el, ev) => {
     if (ev.target === el) ModalManager.close(el.id);
   }
-};
+});
 
 function setupDelegatedEvents_() {
   if (_delegatedEventsBound) return;
@@ -327,9 +279,16 @@ async function updateStorageInfoBadge() {
 
 const MODAL_IDS = ['tasteOcrModal', 'userManualModal', 'photoGpsModal', 'voiceInputModal', 'barcodeScanModal'];
 const ModalManager = {
+  _lastFocusedEl: null,
   open(id) {
     const modal = document.getElementById(id);
-    if (modal) modal.classList.remove('hidden');
+    if (!modal) return;
+    this._lastFocusedEl = document.activeElement;
+    modal.classList.remove('hidden');
+    const focusable = modal.querySelector('button:not([disabled]), input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+    if (focusable && typeof focusable.focus === 'function') {
+      setTimeout(() => focusable.focus(), 0);
+    }
   },
   close(id) {
     const modal = document.getElementById(id);
@@ -339,6 +298,10 @@ const ModalManager = {
     }
     if (id === 'barcodeScanModal' && typeof stopBarcodeCamera === 'function') {
       stopBarcodeCamera();
+    }
+    if (this._lastFocusedEl && typeof this._lastFocusedEl.focus === 'function' && document.contains(this._lastFocusedEl)) {
+      this._lastFocusedEl.focus();
+      this._lastFocusedEl = null;
     }
   },
   toggle(id, forceOpen) {
@@ -389,8 +352,8 @@ function showToast(title, desc) {
   document.getElementById('toastTitle').textContent = title;
   document.getElementById('toastDesc').textContent = desc;
   box.classList.remove('hidden');
-  clearTimeout(window._toastTimer);
-  window._toastTimer = setTimeout(() => {
+  clearTimeout(UiState.toastTimer);
+  UiState.toastTimer = setTimeout(() => {
     box.classList.add('hidden');
   }, 4500);
 }
